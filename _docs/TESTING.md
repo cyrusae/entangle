@@ -71,8 +71,19 @@ Currently opting not to support GitHub-legal names that wouldn't be valid on Tan
 
 ### SSH/network vs. repo existence:
 
-- Distinguish between "repo doesn't exist" and "can't authenticate to check." These are different user problems (typo vs. SSH key not configured for that service). Are these separate error paths? Why or why not? *(Maybe--Different errors per forge? Tangled is ATProto-based and thus all public; "private on GitHub, public on Tangled" is an edge case that should be handled by the user's own GitHub credentials.)*
-- What happens if the network call to check repo existence times out or fails transiently? *(Need to be able to pass this error through for now, in later versions may offer opportunity to override the network check.)*
+Remote validation uses `gix` SSH `ls-refs` (equivalent to `git ls-remote`), with local regex as a fast-fail pre-check. Three distinct error paths — these are separate because they represent different user problems:
+
+- **Not found**: repo doesn't exist at the constructed URL → user has a typo or hasn't initialized the repo yet
+- **Auth failure**: SSH handshake failed → user's SSH key isn't configured for that forge (not a typo problem)
+- **Network error** (timeout, no route to host) → offer override prompt; tool should be usable offline
+
+Private GitHub repos are supported for free: if the user's SSH key has access, `ls-refs` succeeds regardless of repo visibility. No special-casing needed, but worth a note in `--help` that mirroring a private GitHub repo to public Tangled makes the code public.
+
+Test cases:
+- Does `entangle init` produce the correct error for a repo that doesn't exist vs. an SSH key that isn't set up?
+- Does the network-error override prompt appear on timeout, and does accepting it allow `init` to proceed?
+- Does a private GitHub repo get validated correctly when SSH keys are configured?
+- Does a private GitHub repo fail with an auth error (not a not-found error) when SSH keys are *not* configured for GitHub?
 
 ### Input boundary cases:
 

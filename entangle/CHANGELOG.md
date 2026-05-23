@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Step 8: entangle init — git detection and local setup (#9)
 - Step 7: Remote validation (remote.rs) (#8)
 - Step 6: URL construction (urls.rs) (#7)
 - Add setup integration tests and ENTANGLE_CONFIG_PATH env var override (#6)

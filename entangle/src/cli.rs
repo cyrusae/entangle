@@ -67,6 +67,17 @@ pub enum Commands {
         /// Optional alternate name for the repo on the non-origin forge.
         #[arg(value_name = "ALIAS")]
         alias: Option<String>,
+
+        /// Suppress all informational output; only errors and interactive
+        /// prompts are shown. Overrides `verbosity_preference` in config.
+        #[arg(short = 'q', long = "quiet", conflicts_with = "debug")]
+        quiet: bool,
+
+        /// Print internal diagnostics in addition to normal output (parsed git
+        /// config values, code paths taken, etc.). Overrides `verbosity_preference`
+        /// in config.
+        #[arg(long = "debug", conflicts_with = "quiet")]
+        debug: bool,
     },
 
     /// Push all branches and tags to both forges in one command.

@@ -393,6 +393,116 @@ fn early_exit_when_both_push_urls_already_configured() {
 }
 
 // ---------------------------------------------------------------------------
+// Verbosity flags (-q / --debug)
+//
+// These tests exercise the verbosity system without a PTY — they pass the
+// repo name as a CLI arg so dialoguer is never invoked, making the binary
+// fully non-interactive and driveable with Command::output().
+// ---------------------------------------------------------------------------
+
+#[test]
+fn quiet_flag_suppresses_informational_stdout() {
+    let (_dir, config_path, work_dir) = setup_dirs();
+
+    // Run with -q. Tips and URL preview must not appear on stdout.
+    let output = run_init(&["entangle", "-q"], &config_path, &work_dir);
+    assert!(
+        output.status.success(),
+        "quiet init must succeed\nstdout: {}\nstderr: {}",
+        stdout(&output),
+        stderr(&output)
+    );
+
+    let out = stdout(&output);
+    // None of the chatty verbose-only messages should appear.
+    assert!(
+        !out.contains("Tip:"),
+        "quiet mode must suppress README/gitignore tips\nstdout: {out}"
+    );
+    assert!(
+        !out.contains("Configuring remotes"),
+        "quiet mode must suppress URL preview\nstdout: {out}"
+    );
+    assert!(
+        !out.contains("Git repository"),
+        "quiet mode must suppress git-init status\nstdout: {out}"
+    );
+}
+
+#[test]
+fn verbose_flag_not_needed_for_default_output() {
+    // No flag → verbose by default. Tips and URL preview should appear.
+    let (_dir, config_path, work_dir) = setup_dirs();
+
+    let output = run_init(&["entangle"], &config_path, &work_dir);
+    assert!(output.status.success(), "default init must succeed");
+
+    let out = stdout(&output);
+    assert!(
+        out.contains("Configuring remotes"),
+        "default (verbose) mode must include URL preview\nstdout: {out}"
+    );
+}
+
+#[test]
+fn debug_flag_emits_debug_lines() {
+    let (_dir, config_path, work_dir) = setup_dirs();
+
+    let output = run_init(&["entangle", "--debug"], &config_path, &work_dir);
+    assert!(
+        output.status.success(),
+        "debug init must succeed\nstdout: {}\nstderr: {}",
+        stdout(&output),
+        stderr(&output)
+    );
+
+    let out = stdout(&output);
+    // Debug-level lines are bracketed with [debug].
+    assert!(
+        out.contains("[debug]"),
+        "debug mode must emit [debug] lines\nstdout: {out}"
+    );
+    // Debug is a superset of verbose — URL preview must still appear.
+    assert!(
+        out.contains("Configuring remotes"),
+        "debug mode must include verbose URL preview\nstdout: {out}"
+    );
+}
+
+#[test]
+fn config_verbosity_preference_quiet_suppresses_output() {
+    // Write a config with verbosity_preference = "quiet", then run without any
+    // CLI flag — the stored preference should take effect.
+    let dir = TempDir::new().unwrap();
+    let config_path = dir.path().join("config.json");
+    let work_dir = dir.path().join("work");
+    std::fs::create_dir(&work_dir).unwrap();
+
+    // Write a config with verbosity_preference explicitly set to quiet.
+    let json = serde_json::json!({
+        "github_username": "cyrusae",
+        "tangled_username": "atdot.fyi",
+        "origin_preference": "github",
+        "verbosity_preference": "quiet",
+    });
+    std::fs::write(&config_path, serde_json::to_string_pretty(&json).unwrap()).unwrap();
+
+    let output = run_init(&["entangle"], &config_path, &work_dir);
+    assert!(
+        output.status.success(),
+        "quiet-config init must succeed\nstdout: {}\nstderr: {}",
+        stdout(&output),
+        stderr(&output)
+    );
+
+    let out = stdout(&output);
+    assert!(
+        !out.contains("Configuring remotes"),
+        "quiet config preference must suppress URL preview\nstdout: {out}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Step 9 — overwrite prompt tests (Unix only, PTY via rexpect)
 //
 // These tests require a real TTY because `dialoguer::Confirm` won't render

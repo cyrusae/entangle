@@ -33,20 +33,49 @@ use std::path::Path;
 
 use dialoguer::{theme::ColorfulTheme, Input};
 
-use crate::config::{config_path, Config, ConfigError};
+use crate::config::{config_path, Config, ConfigError, VerbosityLevel};
 use crate::git;
 use crate::urls::resolve_urls;
 use crate::validate::validate_repo_name;
+
+// ---------------------------------------------------------------------------
+// Verbosity helper
+// ---------------------------------------------------------------------------
+
+/// Print a formatted message if `$verbosity` is at or above `$level`.
+///
+/// Usage mirrors `println!` — format string and arguments are forwarded as-is.
+/// The level is named without the `VerbosityLevel::` prefix for brevity:
+///
+/// ```ignore
+/// vlog!(verbosity, Verbose, "✓ {}", message);
+/// vlog!(verbosity, Debug,   "  push_urls: {:?}", urls);
+/// ```
+macro_rules! vlog {
+    ($verbosity:expr, $level:ident, $($arg:tt)*) => {
+        if $verbosity >= VerbosityLevel::$level {
+            println!($($arg)*);
+        }
+    };
+}
 
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
 /// Entry point called by `main.rs` for the `init` subcommand.
-pub fn run(repo: Option<String>, alias: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+///
+/// `quiet` and `debug` map directly to the `-q` / `--debug` CLI flags and
+/// override the `verbosity_preference` stored in the config file.
+pub fn run(
+    repo: Option<String>,
+    alias: Option<String>,
+    quiet: bool,
+    debug: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path()?;
     let work_dir = std::env::current_dir()?;
-    run_with_paths(repo, alias, &path, &work_dir)
+    run_with_paths(repo, alias, &path, &work_dir, quiet, debug)
 }
 
 // ---------------------------------------------------------------------------
@@ -57,11 +86,17 @@ pub fn run(repo: Option<String>, alias: Option<String>) -> Result<(), Box<dyn st
 ///
 /// Separated from [`run`] so tests can supply a [`tempfile`] config path and
 /// temp work directory instead of touching the user's real config or cwd.
+///
+/// `quiet` and `debug` correspond to the CLI flags; they override the
+/// `verbosity_preference` field in the loaded config. Pass both as `false`
+/// to use the config-file preference (which defaults to [`VerbosityLevel::Verbose`]).
 pub fn run_with_paths(
     repo: Option<String>,
     alias: Option<String>,
     config_path: &Path,
     work_dir: &Path,
+    quiet: bool,
+    debug: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // ── 1. Load config ───────────────────────────────────────────────────────
     let config = match Config::load_from_path(config_path) {
@@ -71,6 +106,8 @@ pub fn run_with_paths(
             return Err(e.into());
         }
     };
+
+    let verbosity = config.effective_verbosity(quiet, debug);
 
     // ── 2 & 3. Collect and validate repo name ───────────────────────────────
     //
@@ -113,25 +150,25 @@ pub fn run_with_paths(
     // ── 5. Detect / initialize git repo ─────────────────────────────────────
     let was_initialized = git::init_if_needed(work_dir)?;
     if was_initialized {
-        println!("Folder is not a git repository — initializing...");
-        println!("✓ Git repository initialized.");
+        vlog!(verbosity, Verbose, "Folder is not a git repository — initializing...");
+        vlog!(verbosity, Verbose, "✓ Git repository initialized.");
     } else {
-        println!("✓ Git repository detected.");
+        vlog!(verbosity, Verbose, "✓ Git repository detected.");
     }
 
     // ── 6. Suggest .gitignore / README.md if absent ──────────────────────────
     if !git::has_gitignore(work_dir) {
-        println!("  Tip: Add a .gitignore to avoid committing build artifacts.");
+        vlog!(verbosity, Verbose, "  Tip: Add a .gitignore to avoid committing build artifacts.");
     }
     if !git::has_readme(work_dir) {
-        println!("  Tip: Add a README.md to describe your project.");
+        vlog!(verbosity, Verbose, "  Tip: Add a README.md to describe your project.");
     }
 
     // ── 6b. Preview resolved URLs ─────────────────────────────────────────────
-    println!();
-    println!("Configuring remotes for '{repo_name}':");
-    println!("  Origin (fetch + push): {origin_url}");
-    println!("  Mirror (push only):    {mirror_url}");
+    vlog!(verbosity, Verbose, "");
+    vlog!(verbosity, Verbose, "Configuring remotes for '{repo_name}':");
+    vlog!(verbosity, Verbose, "  Origin (fetch + push): {origin_url}");
+    vlog!(verbosity, Verbose, "  Mirror (push only):    {mirror_url}");
 
     // ── 7. Inspect existing remotes; handle overwrite prompt ─────────────────
     //
@@ -141,9 +178,12 @@ pub fn run_with_paths(
 
     let origin_status = git::get_origin_status(work_dir)?;
 
+    vlog!(verbosity, Debug, "  [debug] origin status: {:?}", origin_status);
+
     match &origin_status {
         OriginStatus::Absent => {
             // No existing `origin` remote — Step 10 will create one from scratch.
+            vlog!(verbosity, Debug, "  [debug] no origin remote found; will create from scratch");
         }
 
         OriginStatus::Present { fetch_url, push_urls } => {
@@ -155,10 +195,14 @@ pub fn run_with_paths(
             let has_origin_push = push_urls.iter().any(|u| u == &origin_url);
             let has_mirror_push = push_urls.iter().any(|u| u == &mirror_url);
 
+            vlog!(verbosity, Debug,
+                "  [debug] push_urls={push_urls:?} has_origin_push={has_origin_push} has_mirror_push={has_mirror_push}"
+            );
+
             if has_origin_push && has_mirror_push {
-                println!();
-                println!("✓ Both push remotes are already configured. Nothing to do.");
-                println!("  Run `entangle shove` to push to both forges.");
+                vlog!(verbosity, Verbose, "");
+                vlog!(verbosity, Verbose, "✓ Both push remotes are already configured. Nothing to do.");
+                vlog!(verbosity, Verbose, "  Run `entangle shove` to push to both forges.");
                 return Ok(());
             }
 
@@ -171,24 +215,30 @@ pub fn run_with_paths(
             //   • Proceed  → Step 10 will only add push URLs, leaving fetch alone.
             //   • Abort    → exit cleanly, no changes.
             if fetch_url != &origin_url {
+                vlog!(verbosity, Debug,
+                    "  [debug] fetch URL mismatch: existing={fetch_url} expected={origin_url}"
+                );
+
                 let replace = prompt_replace_origin(fetch_url, &origin_url)?;
 
                 if !replace {
                     let proceed = prompt_proceed_anyway(fetch_url)?;
                     if !proceed {
+                        // "cancelled" is always printed — it's the user's confirmation
+                        // that the abort happened, not just an informational tip.
                         println!("Init cancelled. No changes were made.");
                         return Ok(());
                     }
                     // Proceeding without replacing: warn about the resulting state.
                     // Step 10 will add push URLs but leave the fetch URL as-is.
-                    println!();
-                    println!(
+                    vlog!(verbosity, Verbose, "");
+                    vlog!(verbosity, Verbose,
                         "⚠  Note: origin fetch URL ({fetch_url}) will be kept as-is."
                     );
-                    println!(
+                    vlog!(verbosity, Verbose,
                         "   Push URLs will be added — pushes will reach both forges,"
                     );
-                    println!("   but fetches will come from the existing origin.");
+                    vlog!(verbosity, Verbose, "   but fetches will come from the existing origin.");
                 }
                 // If replace == true, Step 10 will replace the origin and add push URLs.
             }
@@ -375,6 +425,7 @@ mod tests {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Github,
+            verbosity_preference: Default::default(),
         };
         cfg.save_to_path(path).unwrap();
     }
@@ -402,6 +453,8 @@ mod tests {
             None,
             &config_path,
             &work_dir,
+            false,
+            false,
         );
         assert!(result.is_err(), "must error when config is missing");
     }
@@ -413,7 +466,7 @@ mod tests {
         let (_dir, config_path, work_dir) = fresh_dirs();
         assert!(!git::is_git_repo(&work_dir), "precondition: not yet a git repo");
 
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
 
         assert!(
             git::is_git_repo(&work_dir),
@@ -426,9 +479,9 @@ mod tests {
         let (_dir, config_path, work_dir) = fresh_dirs();
 
         // First run — initializes.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
         // Second run — must not error.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
 
         assert!(git::is_git_repo(&work_dir));
     }
@@ -444,6 +497,8 @@ mod tests {
             None,
             &config_path,
             &work_dir,
+            false,
+            false,
         );
         assert!(result.is_err(), "invalid repo name must cause an error");
         // No git repo should have been created.
@@ -462,6 +517,8 @@ mod tests {
             Some("-bad-alias".to_string()),
             &config_path,
             &work_dir,
+            false,
+            false,
         );
         assert!(result.is_err(), "invalid alias must cause an error");
     }
@@ -475,6 +532,8 @@ mod tests {
             Some("mirror-name".to_string()),
             &config_path,
             &work_dir,
+            false,
+            false,
         )
         .unwrap();
     }
@@ -541,7 +600,7 @@ mod tests {
     fn run_with_no_origin_proceeds_to_url_preview() {
         // Fresh repo, no remotes — must print the URL preview and return Ok.
         let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
             .expect("must succeed when no origin remote is configured");
         // The test passes if run_with_paths does not error. Output is checked
         // in integration tests.
@@ -552,7 +611,7 @@ mod tests {
         // Origin fetch URL already matches what we'd set — no prompt, proceed.
         let (_dir, config_path, work_dir) = fresh_dirs();
         // First run initializes the git repo.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
         // Set up an origin with a matching URL (what a github-preference config gives).
         append_origin(
             &work_dir,
@@ -560,7 +619,7 @@ mod tests {
             &[],
         );
         // Second run sees matching origin — must not error, no prompt.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
             .expect("must succeed when origin fetch URL matches expected URL");
     }
 
@@ -568,7 +627,7 @@ mod tests {
     fn run_exits_early_when_both_push_urls_already_configured() {
         // Both push URLs present → early exit with success, no changes needed.
         let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
 
         // Add origin with BOTH push URLs already set.
         append_origin(
@@ -581,7 +640,7 @@ mod tests {
         );
 
         // Should return Ok (early exit, not an error).
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
             .expect("must succeed (early exit) when both push URLs are already configured");
     }
 
@@ -590,7 +649,7 @@ mod tests {
         // Only one push URL present → must proceed (not early-exit) so Step 10
         // can add the missing one.
         let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
 
         // Add origin with only the GitHub push URL (Tangled missing).
         append_origin(
@@ -599,7 +658,7 @@ mod tests {
             &["git@github.com:cyrusae/entangle.git"],
         );
 
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
             .expect("must succeed when only one push URL is configured");
     }
 }

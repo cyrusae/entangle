@@ -91,6 +91,10 @@ pub fn run_with_config_path(path: &Path) -> Result<(), Box<dyn std::error::Error
         github_username,
         tangled_username,
         origin_preference,
+        // Preserve the user's stored verbosity preference if they had one;
+        // default to Verbose for a fresh setup (the field is skip_serializing_if
+        // default, so it won't appear in the JSON file unless changed).
+        verbosity_preference: Default::default(),
     };
     config.save_to_path(path)?;
 
@@ -270,6 +274,7 @@ mod tests {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Github,
+            verbosity_preference: Default::default(),
         }
     }
 

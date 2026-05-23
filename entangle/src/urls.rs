@@ -126,6 +126,7 @@ mod tests {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Github,
+            verbosity_preference: Default::default(),
         }
     }
 
@@ -134,6 +135,7 @@ mod tests {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Tangled,
+            verbosity_preference: Default::default(),
         }
     }
 

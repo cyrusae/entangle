@@ -24,6 +24,61 @@ use std::path::{Path, PathBuf};
 // Data model
 // ---------------------------------------------------------------------------
 
+/// How much output `entangle` produces.
+///
+/// Levels are ordered: `Quiet < Verbose < Debug`. Code that emits output
+/// checks `if verbosity >= RequiredLevel` so that each level is a superset of
+/// the one below it.
+///
+/// ## Serialization
+///
+/// Stored as a lowercase string in the config file:
+/// `"quiet"`, `"verbose"`, or `"debug"`.
+///
+/// The `verbose` level is the default, so it is **omitted** from the config
+/// file when serializing (via `skip_serializing_if`) to keep existing config
+/// files clean. If the field is absent when loading, the default applies.
+///
+/// ## Override precedence
+///
+/// CLI flags override the config file:
+/// - `-q` / `--quiet` → [`VerbosityLevel::Quiet`], regardless of config
+/// - `--debug`        → [`VerbosityLevel::Debug`],  regardless of config
+/// - (no flag)        → use `config.verbosity_preference`, which defaults to
+///                      [`VerbosityLevel::Verbose`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum VerbosityLevel {
+    /// Only errors and interactive prompts reach the user.
+    ///
+    /// All informational `stdout` is suppressed. `stderr` (errors, dialoguer
+    /// prompts) is unaffected.
+    Quiet,
+
+    /// Full informational output: status messages, tips, URL preview, etc.
+    ///
+    /// This is the default level.
+    #[default]
+    Verbose,
+
+    /// Everything in `Verbose` plus internal diagnostics: parsed git config
+    /// values, code paths taken during remote inspection, etc.
+    Debug,
+}
+
+impl VerbosityLevel {
+    /// Returns `true` when this is the default level (`Verbose`).
+    ///
+    /// Used by `#[serde(skip_serializing_if)]` so that the default level is
+    /// omitted from the config file — existing configs without
+    /// `verbosity_preference` remain valid and unchanged.
+    fn is_default_verbosity(&self) -> bool {
+        matches!(self, VerbosityLevel::Verbose)
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 /// Which forge is the primary fetch remote — i.e., where `git fetch` pulls from.
 ///
 /// The non-origin forge is configured as a push-only URL on the same `origin` remote.
@@ -65,7 +120,9 @@ impl OriginPreference {
 /// Persisted user configuration.
 ///
 /// Stored as JSON at `{config_dir}/entangle/config.json`.
-/// All three fields are required; missing fields produce actionable errors.
+/// `github_username`, `tangled_username`, and `origin_preference` are required;
+/// missing required fields produce actionable errors. `verbosity_preference` is
+/// optional and defaults to [`VerbosityLevel::Verbose`] when absent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     /// GitHub username (≤39 chars, alphanumeric + hyphens).
@@ -76,6 +133,39 @@ pub struct Config {
 
     /// Which forge is the primary fetch remote. Defaults to `github`.
     pub origin_preference: OriginPreference,
+
+    /// How much output `entangle` produces. Defaults to [`VerbosityLevel::Verbose`].
+    ///
+    /// Omitted from the config file when set to the default so that existing
+    /// configs without this field remain valid and unchanged.
+    ///
+    /// Override at runtime with `-q` (quiet) or `--debug`; the CLI flag takes
+    /// precedence over this stored preference.
+    #[serde(default, skip_serializing_if = "VerbosityLevel::is_default_verbosity")]
+    pub verbosity_preference: VerbosityLevel,
+}
+
+impl Config {
+    /// Resolve the effective verbosity level for a command invocation.
+    ///
+    /// Applies the CLI-override precedence rule:
+    /// - `quiet` flag → [`VerbosityLevel::Quiet`]
+    /// - `debug` flag → [`VerbosityLevel::Debug`]
+    /// - neither     → the stored `verbosity_preference` (defaulting to
+    ///                 [`VerbosityLevel::Verbose`] if never set)
+    ///
+    /// `quiet` and `debug` are mutually exclusive at the CLI layer (enforced by
+    /// clap's `conflicts_with`), so this function does not need to handle the
+    /// case where both are `true`.
+    pub fn effective_verbosity(&self, quiet: bool, debug: bool) -> VerbosityLevel {
+        if quiet {
+            VerbosityLevel::Quiet
+        } else if debug {
+            VerbosityLevel::Debug
+        } else {
+            self.verbosity_preference
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +491,7 @@ mod tests {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Github,
+            verbosity_preference: Default::default(),
         }
     }
 
@@ -458,6 +549,7 @@ mod tests {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Tangled,
+            verbosity_preference: Default::default(),
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let restored: Config = serde_json::from_str(&json).unwrap();
@@ -628,6 +720,7 @@ mod tests {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Tangled,
+            verbosity_preference: Default::default(),
         };
 
         original.save_to_path(f.path()).unwrap();
@@ -635,5 +728,117 @@ mod tests {
 
         assert_eq!(original, restored);
         assert_eq!(restored.origin_preference, OriginPreference::Tangled);
+    }
+
+    // ── VerbosityLevel ───────────────────────────────────────────────────────
+
+    #[test]
+    fn verbosity_default_is_verbose() {
+        assert_eq!(VerbosityLevel::default(), VerbosityLevel::Verbose);
+    }
+
+    #[test]
+    fn verbosity_ordering_quiet_lt_verbose_lt_debug() {
+        assert!(VerbosityLevel::Quiet < VerbosityLevel::Verbose);
+        assert!(VerbosityLevel::Verbose < VerbosityLevel::Debug);
+    }
+
+    #[test]
+    fn verbosity_serializes_to_lowercase_string() {
+        assert_eq!(
+            serde_json::to_string(&VerbosityLevel::Quiet).unwrap(),
+            r#""quiet""#
+        );
+        assert_eq!(
+            serde_json::to_string(&VerbosityLevel::Verbose).unwrap(),
+            r#""verbose""#
+        );
+        assert_eq!(
+            serde_json::to_string(&VerbosityLevel::Debug).unwrap(),
+            r#""debug""#
+        );
+    }
+
+    #[test]
+    fn verbosity_deserializes_from_lowercase_string() {
+        let q: VerbosityLevel = serde_json::from_str(r#""quiet""#).unwrap();
+        let v: VerbosityLevel = serde_json::from_str(r#""verbose""#).unwrap();
+        let d: VerbosityLevel = serde_json::from_str(r#""debug""#).unwrap();
+        assert_eq!(q, VerbosityLevel::Quiet);
+        assert_eq!(v, VerbosityLevel::Verbose);
+        assert_eq!(d, VerbosityLevel::Debug);
+    }
+
+    #[test]
+    fn verbosity_default_omitted_from_serialized_config() {
+        // When verbosity_preference is the default (Verbose), it must not
+        // appear in the serialized JSON so existing configs stay clean.
+        let cfg = valid_config(); // verbosity_preference = Verbose (default)
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(
+            !json.contains("verbosity_preference"),
+            "default verbosity must not appear in JSON: {json}"
+        );
+    }
+
+    #[test]
+    fn verbosity_non_default_persisted_in_config() {
+        // Non-default levels must be written so the preference is actually saved.
+        let cfg = Config {
+            github_username: "cyrusae".to_string(),
+            tangled_username: "atdot.fyi".to_string(),
+            origin_preference: OriginPreference::Github,
+            verbosity_preference: VerbosityLevel::Quiet,
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(
+            json.contains("verbosity_preference"),
+            "non-default verbosity must appear in JSON: {json}"
+        );
+        assert!(json.contains("quiet"), "must serialize to 'quiet': {json}");
+    }
+
+    #[test]
+    fn verbosity_missing_from_json_loads_as_default() {
+        // Existing config files without verbosity_preference must load fine
+        // and resolve to Verbose.
+        let f = temp_with(
+            r#"{"github_username":"cyrusae","tangled_username":"atdot.fyi","origin_preference":"github"}"#,
+        );
+        let cfg = Config::load_from_path(f.path()).unwrap();
+        assert_eq!(
+            cfg.verbosity_preference,
+            VerbosityLevel::Verbose,
+            "absent verbosity_preference must default to Verbose"
+        );
+    }
+
+    #[test]
+    fn effective_verbosity_quiet_flag_overrides_config() {
+        let cfg = Config {
+            github_username: "cyrusae".to_string(),
+            tangled_username: "atdot.fyi".to_string(),
+            origin_preference: OriginPreference::Github,
+            verbosity_preference: VerbosityLevel::Debug, // config says debug…
+        };
+        // …but CLI -q overrides it.
+        assert_eq!(cfg.effective_verbosity(true, false), VerbosityLevel::Quiet);
+    }
+
+    #[test]
+    fn effective_verbosity_debug_flag_overrides_config() {
+        let cfg = valid_config(); // config says verbose
+        assert_eq!(cfg.effective_verbosity(false, true), VerbosityLevel::Debug);
+    }
+
+    #[test]
+    fn effective_verbosity_no_flags_uses_config_preference() {
+        let cfg = Config {
+            github_username: "cyrusae".to_string(),
+            tangled_username: "atdot.fyi".to_string(),
+            origin_preference: OriginPreference::Github,
+            verbosity_preference: VerbosityLevel::Quiet,
+        };
+        assert_eq!(cfg.effective_verbosity(false, false), VerbosityLevel::Quiet);
     }
 }

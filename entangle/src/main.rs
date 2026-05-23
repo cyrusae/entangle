@@ -30,7 +30,10 @@ use cli::{Cli, Commands};
 fn main() {
     let cli = Cli::parse();
 
-    let result = match cli.command {
+    // All handlers return Result<(), Box<dyn std::error::Error>> so that each
+    // command module can use ? freely across ConfigError, ValidationError, gix
+    // errors, and anything else that arises without a central error-enum wrapper.
+    let result: Result<(), Box<dyn std::error::Error>> = match cli.command {
         // No subcommand: print available commands (not an error).
         None => {
             print_available_commands();

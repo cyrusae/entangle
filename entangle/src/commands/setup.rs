@@ -14,10 +14,8 @@
 //!
 //! Stub — implemented in Step 5.
 
-use crate::config::ConfigError;
-
 /// Entry point called by `main.rs` for the `setup` subcommand.
-pub fn run() -> Result<(), ConfigError> {
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Stub — implemented in Step 5.
     println!("entangle setup: not yet implemented");
     Ok(())

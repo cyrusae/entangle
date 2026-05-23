@@ -14,10 +14,8 @@
 //!
 //! Stub — implemented in Step 11.
 
-use crate::config::ConfigError;
-
 /// Entry point called by `main.rs` for the `shove` subcommand.
-pub fn run() -> Result<(), ConfigError> {
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Stub — implemented in Step 11.
     println!("entangle shove: not yet implemented");
     Ok(())

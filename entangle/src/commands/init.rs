@@ -15,13 +15,9 @@
 //!
 //! Stub — implemented in Steps 8–10.
 
-use crate::config::ConfigError;
-
 /// Entry point called by `main.rs` for the `init` subcommand.
-pub fn run(repo: Option<String>, alias: Option<String>) -> Result<(), ConfigError> {
+pub fn run(repo: Option<String>, alias: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     // Stub — implemented in Steps 8–10.
-    println!(
-        "entangle init (repo={repo:?}, alias={alias:?}): not yet implemented"
-    );
+    println!("entangle init (repo={repo:?}, alias={alias:?}): not yet implemented");
     Ok(())
 }

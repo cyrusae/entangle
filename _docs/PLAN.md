@@ -64,7 +64,7 @@ Cross-cutting reminders (apply throughout):
       pub origin_preference: OriginPreference, // enum: GitHub | Tangled
   }
   ```
-  
+
 - Implement `Config::path() -> PathBuf` using `dirs::config_dir()`
 - Implement `Config::load() -> Result<Config, ConfigError>` — reads from `{config_dir}/entangle/config.json`. Return distinct error variants for:
   - File not found (no config yet)
@@ -308,8 +308,6 @@ Cross-cutting reminders (apply throughout):
 **Tests**:
 - Visual review of all command outputs in a real terminal
 - Integration: no command produces output that references internal types or `gix` error strings (unless in a future debug/verbose mode)
-
-**📋 Decision point**: This is the right moment to decide `--quiet` / verbosity behavior (noted as post-MVP but the shape of it becomes clear here). At minimum, decide what output is non-suppressible (errors and the final state confirmation) vs. what would be silenced by `--quiet`.
 
 ---
 

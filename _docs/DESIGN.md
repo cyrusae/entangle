@@ -106,7 +106,7 @@ Ending prompt should include a suggestion to `entangle shove` for a first-time m
 ## Coding and preferences
 
 - **Use the `gix` crate for interacting with git.** Avoid shelling out to `git` except for tests.
-- **Modular code**: if I have to scroll twice, the file is probably doing too many things at once.
+- **Modular code**: if I have to scroll twice, the file might be doing too many things at once.
 - Add documentation comments.
 - Comment prolifically in general.
 - Unit tests and integration tests: use `gix` for unit tests, directly use `git` for integration tests. *See the testing doc for details.*

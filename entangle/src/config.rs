@@ -245,7 +245,24 @@ impl std::error::Error for ConfigError {}
 /// Returns the path to the config file: `{config_dir}/entangle/config.json`.
 ///
 /// Does not check whether the file or its parent directory exists.
+///
+/// ## Override via environment variable
+///
+/// If `ENTANGLE_CONFIG_PATH` is set, its value is used as the config path
+/// directly, bypassing the platform config directory. This is useful for:
+/// - Integration tests that need an isolated config file.
+/// - Power users who want a non-standard config location.
+///
+/// ```sh
+/// ENTANGLE_CONFIG_PATH=/tmp/my-entangle.json entangle setup
+/// ```
 pub fn config_path() -> Result<PathBuf, ConfigError> {
+    // Check for an explicit override first. The env var takes precedence over
+    // the platform default, which lets integration tests stay isolated without
+    // touching the user's real config directory.
+    if let Ok(override_path) = std::env::var("ENTANGLE_CONFIG_PATH") {
+        return Ok(PathBuf::from(override_path));
+    }
     let base = config_dir().ok_or(ConfigError::NoPlatformConfigDir)?;
     Ok(base.join("entangle").join("config.json"))
 }

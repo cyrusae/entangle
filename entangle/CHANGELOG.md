@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Add setup integration tests and ENTANGLE_CONFIG_PATH env var override (#6)
+- Implement entangle setup with interactive prompts, pre-existing config detection, and Ctrl+C safety (#5)
 - Implement entangle set command with validation, partial config updates, and confirmation output (#4)
 - Add input sanitization and validation module with exhaustive tests (#3)
 - Implement Config load/save with full error variants and tests (#2)

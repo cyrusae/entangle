@@ -30,5 +30,6 @@ dirs = "5"
 gix = { version = "0.70", features = ["blocking-network-client"] }
 
 [dev-dependencies]
+rexpect = "0.7.1"
 # tempfile is useful for integration tests that need throwaway git repos
 tempfile = "3"

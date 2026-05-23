@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Step 7: Remote validation (remote.rs) (#8)
+- Step 6: URL construction (urls.rs) (#7)
 - Add setup integration tests and ENTANGLE_CONFIG_PATH env var override (#6)
 - Implement entangle setup with interactive prompts, pre-existing config detection, and Ctrl+C safety (#5)
 - Implement entangle set command with validation, partial config updates, and confirmation output (#4)

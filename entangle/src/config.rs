@@ -45,7 +45,7 @@ use std::path::{Path, PathBuf};
 /// - `-q` / `--quiet` → [`VerbosityLevel::Quiet`], regardless of config
 /// - `--debug`        → [`VerbosityLevel::Debug`],  regardless of config
 /// - (no flag)        → use `config.verbosity_preference`, which defaults to
-///                      [`VerbosityLevel::Verbose`]
+///   [`VerbosityLevel::Verbose`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum VerbosityLevel {
@@ -152,7 +152,7 @@ impl Config {
     /// - `quiet` flag → [`VerbosityLevel::Quiet`]
     /// - `debug` flag → [`VerbosityLevel::Debug`]
     /// - neither     → the stored `verbosity_preference` (defaulting to
-    ///                 [`VerbosityLevel::Verbose`] if never set)
+    ///   [`VerbosityLevel::Verbose`] if never set)
     ///
     /// `quiet` and `debug` are mutually exclusive at the CLI layer (enforced by
     /// clap's `conflicts_with`), so this function does not need to handle the

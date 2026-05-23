@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Implement entangle shove command (Step 11) (#14)
+- Wire remote validation (Step 7) into entangle init (#12)
+- Step 9: entangle init — remote inspection and overwrite prompt (#10)
 - Step 8: entangle init — git detection and local setup (#9)
 - Step 7: Remote validation (remote.rs) (#8)
 - Step 6: URL construction (urls.rs) (#7)
@@ -18,5 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add project skeleton with all four subcommands stubbed and Cargo dependencies (#1)
 
 ### Fixed
+- Fix push URL order: mirror (non-default) first, origin (default) last (#11)
 
 ### Changed
+- Clarify entangle shove hint text: all branches/tags, first-setup nudge (#13)

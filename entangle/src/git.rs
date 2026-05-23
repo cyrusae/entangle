@@ -145,6 +145,183 @@ pub fn get_origin_status(work_dir: &Path) -> Result<OriginStatus, Box<dyn std::e
     Ok(OriginStatus::Present { fetch_url, push_urls })
 }
 
+// ---------------------------------------------------------------------------
+// Remote configuration (write operations)
+// ---------------------------------------------------------------------------
+
+/// Append a new `[remote "origin"]` section to `.git/config`.
+///
+/// Writes the fetch URL, the standard `+refs/heads/*` fetch refspec, and any
+/// supplied push URLs in order.
+///
+/// # When to call
+///
+/// Only call this when [`get_origin_status`] returns [`OriginStatus::Absent`].
+/// Do not call when an `origin` remote already exists — use
+/// [`set_origin_fetch_url`] and [`add_push_urls_to_origin`] instead.
+pub fn create_origin_remote(
+    work_dir: &Path,
+    fetch_url: &str,
+    push_urls: &[&str],
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
+    let config_path = work_dir.join(".git").join("config");
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&config_path)?;
+    writeln!(file, "\n[remote \"origin\"]")?;
+    writeln!(file, "\turl = {fetch_url}")?;
+    writeln!(file, "\tfetch = +refs/heads/*:refs/remotes/origin/*")?;
+    for url in push_urls {
+        writeln!(file, "\tpushurl = {url}")?;
+    }
+    Ok(())
+}
+
+/// Replace the `url =` line in the existing `[remote "origin"]` section.
+///
+/// Reads `.git/config`, rewrites the first `url` key it finds inside the
+/// `[remote "origin"]` section, and writes the result back atomically.
+///
+/// # When to call
+///
+/// Call this when [`get_origin_status`] returns `Present` and the user has
+/// confirmed that they want the fetch URL replaced (`replace_fetch_url == true`).
+pub fn set_origin_fetch_url(
+    work_dir: &Path,
+    new_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config_path = work_dir.join(".git").join("config");
+    let content = std::fs::read_to_string(&config_path)?;
+    let modified = replace_url_in_origin_section(&content, new_url);
+    std::fs::write(&config_path, modified)?;
+    Ok(())
+}
+
+/// Append one or more `pushurl =` entries to the existing `[remote "origin"]` section.
+///
+/// Reads `.git/config`, inserts the new `pushurl` lines just before the next
+/// section header (or at the end of the file if `[remote "origin"]` is the last
+/// section), and writes the result back.
+///
+/// Pass only the push URLs that are not already present — this function does not
+/// deduplicate. The caller is responsible for checking [`OriginStatus`]'s
+/// `push_urls` vector first.
+pub fn add_push_urls_to_origin(
+    work_dir: &Path,
+    push_urls: &[&str],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if push_urls.is_empty() {
+        return Ok(());
+    }
+    let config_path = work_dir.join(".git").join("config");
+    let content = std::fs::read_to_string(&config_path)?;
+    let modified = insert_push_urls_in_config(&content, push_urls);
+    std::fs::write(&config_path, modified)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Pure text-transform helpers
+// ---------------------------------------------------------------------------
+
+/// Replace the `url = ...` line inside the `[remote "origin"]` section of a
+/// git config string.
+///
+/// Only the first `url` key encountered after the `[remote "origin"]` header is
+/// replaced; subsequent sections and keys are untouched. If the section or key
+/// is not found the original text is returned unchanged.
+///
+/// Indentation is preserved: the replacement line uses the same leading
+/// whitespace as the original.
+fn replace_url_in_origin_section(config_text: &str, new_url: &str) -> String {
+    let section_header = "[remote \"origin\"]";
+    let mut in_section = false;
+    let mut replaced = false;
+    let mut result = String::with_capacity(config_text.len() + new_url.len());
+
+    for line in config_text.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') {
+            in_section = trimmed == section_header;
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+
+        if in_section && !replaced && let Some(eq_pos) = trimmed.find('=') {
+            let key = trimmed[..eq_pos].trim();
+            if key.eq_ignore_ascii_case("url") {
+                // Preserve the original indentation.
+                let indent_len = line.len() - line.trim_start().len();
+                let indent = &line[..indent_len];
+                result.push_str(indent);
+                result.push_str("url = ");
+                result.push_str(new_url);
+                result.push('\n');
+                replaced = true;
+                continue;
+            }
+        }
+
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    result
+}
+
+/// Insert `pushurl = ...` entries into the `[remote "origin"]` section.
+///
+/// Lines are inserted immediately before the next section header, or at the end
+/// of the string if `[remote "origin"]` is the last section. Push URLs are
+/// written with a single leading tab (`\t`) to match git's own config style.
+///
+/// If no `[remote "origin"]` section exists the string is returned unchanged.
+/// An empty `push_urls` slice also returns the string unchanged.
+fn insert_push_urls_in_config(config_text: &str, push_urls: &[&str]) -> String {
+    if push_urls.is_empty() {
+        return config_text.to_string();
+    }
+
+    let section_header = "[remote \"origin\"]";
+    let mut in_section = false;
+    let mut inserted = false;
+    let mut result = String::with_capacity(config_text.len() + push_urls.len() * 60);
+
+    for line in config_text.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') {
+            if in_section && !inserted {
+                // Leaving the origin section — insert before the next header.
+                for url in push_urls {
+                    result.push_str("\tpushurl = ");
+                    result.push_str(url);
+                    result.push('\n');
+                }
+                inserted = true;
+            }
+            in_section = trimmed == section_header;
+        }
+
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    // Origin section ran to end of file and we haven't inserted yet.
+    if in_section && !inserted {
+        for url in push_urls {
+            result.push_str("\tpushurl = ");
+            result.push_str(url);
+            result.push('\n');
+        }
+    }
+
+    result
+}
+
 /// Read all `pushurl` entries for `remote_name` from `.git/config`.
 ///
 /// Multiple `[remote "<name>"]` sections are all visited — git config merges
@@ -189,14 +366,12 @@ fn read_push_urls(work_dir: &Path, remote_name: &str) -> Vec<String> {
             continue;
         }
 
-        if in_section {
-            if let Some(eq_pos) = trimmed.find('=') {
-                let key = trimmed[..eq_pos].trim();
-                // Config keys are case-insensitive.
-                if key.eq_ignore_ascii_case("pushurl") {
-                    let value = trimmed[eq_pos + 1..].trim();
-                    push_urls.push(value.to_string());
-                }
+        if in_section && let Some(eq_pos) = trimmed.find('=') {
+            let key = trimmed[..eq_pos].trim();
+            // Config keys are case-insensitive.
+            if key.eq_ignore_ascii_case("pushurl") {
+                let value = trimmed[eq_pos + 1..].trim();
+                push_urls.push(value.to_string());
             }
         }
     }
@@ -478,6 +653,233 @@ mod tests {
 
         let urls = read_push_urls(dir.path(), "origin");
         assert_eq!(urls, vec!["git@tangled.org:atdot.fyi/entangle"]);
+    }
+
+    // ── replace_url_in_origin_section ─────────────────────────────────────────
+
+    #[test]
+    fn replace_url_in_origin_section_replaces_url() {
+        let config = "[core]\n\trepositoryformatversion = 0\n\n[remote \"origin\"]\n\turl = git@github.com:old/repo.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n";
+        let result = replace_url_in_origin_section(config, "git@github.com:new/repo.git");
+        assert!(
+            result.contains("\turl = git@github.com:new/repo.git"),
+            "must contain the new url: {result}"
+        );
+        assert!(
+            !result.contains("url = git@github.com:old/repo.git"),
+            "must not contain old url: {result}"
+        );
+        assert!(result.contains("[core]"), "must preserve [core] section");
+    }
+
+    #[test]
+    fn replace_url_in_origin_section_preserves_indentation() {
+        let config = "[remote \"origin\"]\n\t\turl = old\n";
+        let result = replace_url_in_origin_section(config, "new");
+        // The double-tab indentation from the original must be preserved.
+        assert!(result.contains("\t\turl = new"), "must preserve original indentation: {result}");
+    }
+
+    #[test]
+    fn replace_url_in_origin_section_does_not_touch_other_remotes() {
+        let config = "[remote \"upstream\"]\n\turl = upstream_url\n[remote \"origin\"]\n\turl = old_url\n";
+        let result = replace_url_in_origin_section(config, "new_url");
+        assert!(result.contains("upstream_url"), "must not modify upstream remote");
+        assert!(result.contains("url = new_url"), "must update origin url");
+        assert!(!result.contains("url = old_url"), "old url must be gone");
+    }
+
+    #[test]
+    fn replace_url_in_origin_section_returns_unchanged_when_section_absent() {
+        let config = "[core]\n\trepositoryformatversion = 0\n";
+        let result = replace_url_in_origin_section(config, "some_url");
+        // No [remote "origin"] section — the url must not appear in the result.
+        assert!(
+            !result.contains("some_url"),
+            "must not insert url when section is absent: {result}"
+        );
+        assert!(result.contains("[core]"), "core section must still be present");
+    }
+
+    // ── insert_push_urls_in_config ────────────────────────────────────────────
+
+    #[test]
+    fn insert_push_urls_in_config_inserts_before_next_section() {
+        let config = "[remote \"origin\"]\n\turl = origin_url\n[branch \"main\"]\n\tremote = origin\n";
+        let result = insert_push_urls_in_config(config, &["push_url_1", "push_url_2"]);
+        let push1_pos = result.find("pushurl = push_url_1").expect("push_url_1 must be in result");
+        let branch_pos = result.find("[branch").expect("[branch] must still be in result");
+        assert!(
+            push1_pos < branch_pos,
+            "pushurls must appear before [branch] header"
+        );
+        assert!(result.contains("pushurl = push_url_2"), "push_url_2 must be present");
+    }
+
+    #[test]
+    fn insert_push_urls_in_config_appends_when_last_section() {
+        let config = "[remote \"origin\"]\n\turl = origin_url\n\tfetch = +refs/heads/*\n";
+        let result = insert_push_urls_in_config(config, &["push_url_1"]);
+        assert!(result.contains("\tpushurl = push_url_1"), "must add pushurl at end");
+    }
+
+    #[test]
+    fn insert_push_urls_in_config_uses_tab_indent() {
+        let config = "[remote \"origin\"]\n\turl = url\n";
+        let result = insert_push_urls_in_config(config, &["my_url"]);
+        assert!(
+            result.contains("\tpushurl = my_url"),
+            "pushurl must be tab-indented: {result}"
+        );
+    }
+
+    #[test]
+    fn insert_push_urls_in_config_returns_unchanged_for_empty_slice() {
+        let config = "[remote \"origin\"]\n\turl = url\n";
+        let result = insert_push_urls_in_config(config, &[]);
+        assert_eq!(result, config, "empty push_urls must return unchanged string");
+    }
+
+    #[test]
+    fn insert_push_urls_in_config_returns_unchanged_when_section_absent() {
+        let config = "[core]\n\trepositoryformatversion = 0\n";
+        let result = insert_push_urls_in_config(config, &["some_url"]);
+        // No origin section — string unchanged (modulo the line-by-line reconstruction).
+        assert!(!result.contains("pushurl"), "must not insert pushurl when section is absent");
+    }
+
+    // ── create_origin_remote ──────────────────────────────────────────────────
+
+    #[test]
+    fn create_origin_remote_creates_section_with_fetch_and_push_urls() {
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        create_origin_remote(
+            dir.path(),
+            "git@github.com:user/repo.git",
+            &["git@github.com:user/repo.git", "git@tangled.org:user/repo"],
+        )
+        .unwrap();
+
+        let status = get_origin_status(dir.path()).unwrap();
+        match status {
+            OriginStatus::Present { fetch_url, push_urls } => {
+                assert_eq!(fetch_url, "git@github.com:user/repo.git");
+                assert_eq!(push_urls.len(), 2, "must have both push URLs");
+                assert!(push_urls.contains(&"git@github.com:user/repo.git".to_string()));
+                assert!(push_urls.contains(&"git@tangled.org:user/repo".to_string()));
+            }
+            OriginStatus::Absent => panic!("expected Present after create_origin_remote"),
+        }
+    }
+
+    #[test]
+    fn create_origin_remote_with_no_push_urls_creates_section() {
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        create_origin_remote(dir.path(), "git@github.com:user/repo.git", &[]).unwrap();
+
+        let status = get_origin_status(dir.path()).unwrap();
+        match status {
+            OriginStatus::Present { fetch_url, push_urls } => {
+                assert_eq!(fetch_url, "git@github.com:user/repo.git");
+                assert!(push_urls.is_empty(), "no push URLs should be configured");
+            }
+            OriginStatus::Absent => panic!("expected Present"),
+        }
+    }
+
+    // ── set_origin_fetch_url ──────────────────────────────────────────────────
+
+    #[test]
+    fn set_origin_fetch_url_replaces_existing_url() {
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        append_origin_remote(dir.path(), "git@github.com:old/repo.git", &[]);
+
+        set_origin_fetch_url(dir.path(), "git@github.com:new/repo.git").unwrap();
+
+        let status = get_origin_status(dir.path()).unwrap();
+        match status {
+            OriginStatus::Present { fetch_url, .. } => {
+                assert_eq!(
+                    fetch_url, "git@github.com:new/repo.git",
+                    "fetch URL must be updated"
+                );
+            }
+            OriginStatus::Absent => panic!("expected Present"),
+        }
+    }
+
+    #[test]
+    fn set_origin_fetch_url_preserves_push_urls() {
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        append_origin_remote(
+            dir.path(),
+            "git@github.com:old/repo.git",
+            &["git@github.com:old/repo.git"],
+        );
+
+        set_origin_fetch_url(dir.path(), "git@github.com:new/repo.git").unwrap();
+
+        let status = get_origin_status(dir.path()).unwrap();
+        match status {
+            OriginStatus::Present { fetch_url, push_urls } => {
+                assert_eq!(fetch_url, "git@github.com:new/repo.git");
+                assert_eq!(push_urls, vec!["git@github.com:old/repo.git"]);
+            }
+            OriginStatus::Absent => panic!("expected Present"),
+        }
+    }
+
+    // ── add_push_urls_to_origin ───────────────────────────────────────────────
+
+    #[test]
+    fn add_push_urls_to_origin_appends_to_existing_remote() {
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        append_origin_remote(dir.path(), "git@github.com:user/repo.git", &[]);
+
+        add_push_urls_to_origin(
+            dir.path(),
+            &["git@github.com:user/repo.git", "git@tangled.org:user/repo"],
+        )
+        .unwrap();
+
+        let urls = read_push_urls(dir.path(), "origin");
+        assert_eq!(urls.len(), 2, "must have both push URLs");
+        assert!(urls.contains(&"git@github.com:user/repo.git".to_string()));
+        assert!(urls.contains(&"git@tangled.org:user/repo".to_string()));
+    }
+
+    #[test]
+    fn add_push_urls_to_origin_is_noop_for_empty_slice() {
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        append_origin_remote(dir.path(), "git@github.com:user/repo.git", &[]);
+
+        add_push_urls_to_origin(dir.path(), &[]).unwrap();
+
+        let urls = read_push_urls(dir.path(), "origin");
+        assert!(urls.is_empty(), "no push URLs should be added from an empty slice");
+    }
+
+    #[test]
+    fn add_push_urls_to_origin_preserves_fetch_url() {
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        append_origin_remote(dir.path(), "git@github.com:user/repo.git", &[]);
+
+        add_push_urls_to_origin(dir.path(), &["git@tangled.org:user/repo"]).unwrap();
+
+        let status = get_origin_status(dir.path()).unwrap();
+        match status {
+            OriginStatus::Present { fetch_url, .. } => {
+                assert_eq!(fetch_url, "git@github.com:user/repo.git", "fetch URL must be preserved");
+            }
+            OriginStatus::Absent => panic!("expected Present"),
+        }
     }
 
     #[test]

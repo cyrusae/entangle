@@ -35,6 +35,7 @@ use dialoguer::{theme::ColorfulTheme, Input};
 
 use crate::config::{config_path, Config, ConfigError, VerbosityLevel};
 use crate::git;
+use crate::remote;
 use crate::urls::resolve_urls;
 use crate::validate::validate_repo_name;
 
@@ -67,6 +68,10 @@ macro_rules! vlog {
 ///
 /// `quiet` and `debug` map directly to the `-q` / `--debug` CLI flags and
 /// override the `verbosity_preference` stored in the config file.
+///
+/// Remote validation can be bypassed for integration tests by setting the
+/// `ENTANGLE_SKIP_REMOTE_CHECK` environment variable to any value. This avoids
+/// real SSH connections in tests that spawn the binary as a subprocess.
 pub fn run(
     repo: Option<String>,
     alias: Option<String>,
@@ -75,7 +80,14 @@ pub fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path()?;
     let work_dir = std::env::current_dir()?;
-    run_with_paths(repo, alias, &path, &work_dir, quiet, debug)
+    let skip_check = std::env::var("ENTANGLE_SKIP_REMOTE_CHECK").is_ok();
+    run_with_paths(repo, alias, &path, &work_dir, quiet, debug, |origin, mirror| {
+        if skip_check {
+            return Ok(());
+        }
+        remote::validate_remotes(origin, mirror)
+            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +102,11 @@ pub fn run(
 /// `quiet` and `debug` correspond to the CLI flags; they override the
 /// `verbosity_preference` field in the loaded config. Pass both as `false`
 /// to use the config-file preference (which defaults to [`VerbosityLevel::Verbose`]).
+///
+/// `remote_validator` is called with `(origin_url, mirror_url)` to verify
+/// that both remotes are reachable before touching `.git/config`. In
+/// production this is [`remote::validate_remotes`] (which does real SSH
+/// ls-refs). In unit tests pass `|_, _| Ok(())` to skip network I/O.
 pub fn run_with_paths(
     repo: Option<String>,
     alias: Option<String>,
@@ -97,6 +114,7 @@ pub fn run_with_paths(
     work_dir: &Path,
     quiet: bool,
     debug: bool,
+    remote_validator: impl Fn(&str, &str) -> Result<(), Box<dyn std::error::Error>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // ── 1. Load config ───────────────────────────────────────────────────────
     let config = match Config::load_from_path(config_path) {
@@ -170,15 +188,67 @@ pub fn run_with_paths(
     vlog!(verbosity, Verbose, "  Origin (fetch + push): {origin_url}");
     vlog!(verbosity, Verbose, "  Mirror (push only):    {mirror_url}");
 
-    // ── 7. Inspect existing remotes; handle overwrite prompt ─────────────────
-    //
-    // We read the current `origin` state AFTER showing the URL preview so the
-    // user can see the intended configuration before being asked about conflicts.
+    // ── 7. Inspect existing remotes ──────────────────────────────────────────
     use crate::git::OriginStatus;
 
     let origin_status = git::get_origin_status(work_dir)?;
 
     vlog!(verbosity, Debug, "  [debug] origin status: {:?}", origin_status);
+
+    // ── 7a. Early exit if already fully configured ────────────────────────────
+    //
+    // Both push URLs present → a previous `entangle init` (or manual setup)
+    // already wired the dual-push configuration. Exit cleanly before hitting
+    // the network — no point validating if nothing needs to change.
+    if let OriginStatus::Present { push_urls, .. } = &origin_status {
+        let has_origin_push = push_urls.iter().any(|u| u == &origin_url);
+        let has_mirror_push = push_urls.iter().any(|u| u == &mirror_url);
+
+        vlog!(verbosity, Debug,
+            "  [debug] push_urls={push_urls:?} has_origin_push={has_origin_push} has_mirror_push={has_mirror_push}"
+        );
+
+        if has_origin_push && has_mirror_push {
+            vlog!(verbosity, Verbose, "");
+            vlog!(verbosity, Verbose, "✓ Both push remotes are already configured. Nothing to do.");
+            vlog!(verbosity, Verbose, "  Run `entangle shove` to push all branches and tags to both forges.");
+            return Ok(());
+        }
+    }
+
+    // ── 7b. Validate remote accessibility ─────────────────────────────────────
+    //
+    // Verify both SSH endpoints are reachable (or the user accepts the offline
+    // override) before touching `.git/config`. Placed after URL preview so the
+    // user sees the intended targets before we go to the network, and after the
+    // early-exit check so we don't hit the network for already-configured repos.
+    //
+    // Three outcomes from the validator:
+    //   • Ok(())           → both reachable (or user accepted offline override).
+    //   • NotFound/Auth    → hard stop; user must fix the URL or SSH key first.
+    //   • NetworkError declined → OfflineAborted; user cancelled at the prompt.
+    vlog!(verbosity, Verbose, "");
+    vlog!(verbosity, Verbose, "Checking remote accessibility…");
+    if let Err(e) = remote_validator(&origin_url, &mirror_url) {
+        eprintln!("Error: {e}");
+        return Err(e);
+    }
+    vlog!(verbosity, Verbose, "✓ Both remotes are accessible.");
+
+    // ── 7c. Handle overwrite prompt if fetch URL doesn't match ───────────────
+    //
+    // Two variables capture the decisions made here so Step 10 and the
+    // post-action note can use them:
+    //
+    //   `replace_fetch_url`   — true if the user chose to replace the existing
+    //                           origin fetch URL. Step 10 swaps it before
+    //                           adding push URLs.
+    //
+    //   `kept_existing_fetch` — Some(url) if the user chose to proceed without
+    //                           replacing. Step 10 skips touching the fetch URL;
+    //                           a ⚠ note is shown after Step 10 completes.
+    let mut replace_fetch_url = false;
+    let mut kept_existing_fetch: Option<String> = None;
 
     match &origin_status {
         OriginStatus::Absent => {
@@ -186,68 +256,118 @@ pub fn run_with_paths(
             vlog!(verbosity, Debug, "  [debug] no origin remote found; will create from scratch");
         }
 
-        OriginStatus::Present { fetch_url, push_urls } => {
-            // ── 7a. Early exit if already fully configured ────────────────────
-            //
-            // Both push URLs being present means a previous `entangle init` (or
-            // manual setup) has already wired up the dual-push configuration.
-            // Nothing left to do — exit cleanly rather than re-adding duplicates.
-            let has_origin_push = push_urls.iter().any(|u| u == &origin_url);
-            let has_mirror_push = push_urls.iter().any(|u| u == &mirror_url);
-
-            vlog!(verbosity, Debug,
-                "  [debug] push_urls={push_urls:?} has_origin_push={has_origin_push} has_mirror_push={has_mirror_push}"
-            );
-
-            if has_origin_push && has_mirror_push {
-                vlog!(verbosity, Verbose, "");
-                vlog!(verbosity, Verbose, "✓ Both push remotes are already configured. Nothing to do.");
-                vlog!(verbosity, Verbose, "  Run `entangle shove` to push to both forges.");
-                return Ok(());
-            }
-
-            // ── 7b. Overwrite prompt if fetch URL doesn't match ───────────────
-            //
-            // If the existing `origin` fetch URL differs from the one we'd set
-            // (e.g., a GitLab URL from a previous project), we must ask before
-            // touching it.  Two outcomes:
-            //   • Replace  → Step 10 will swap the fetch URL and add push URLs.
-            //   • Proceed  → Step 10 will only add push URLs, leaving fetch alone.
-            //   • Abort    → exit cleanly, no changes.
+        OriginStatus::Present { fetch_url, push_urls: _ } => {
             if fetch_url != &origin_url {
+                // Fetch URL mismatch (e.g., GitLab remote, a fork, different user).
+                // Three outcomes: replace, proceed-as-is, or abort.
                 vlog!(verbosity, Debug,
                     "  [debug] fetch URL mismatch: existing={fetch_url} expected={origin_url}"
                 );
 
                 let replace = prompt_replace_origin(fetch_url, &origin_url)?;
 
-                if !replace {
+                if replace {
+                    replace_fetch_url = true;
+                } else {
                     let proceed = prompt_proceed_anyway(fetch_url)?;
                     if !proceed {
-                        // "cancelled" is always printed — it's the user's confirmation
-                        // that the abort happened, not just an informational tip.
+                        // Always printed — the user's confirmation that the abort
+                        // happened, not a suppressible informational tip.
                         println!("Init cancelled. No changes were made.");
                         return Ok(());
                     }
-                    // Proceeding without replacing: warn about the resulting state.
-                    // Step 10 will add push URLs but leave the fetch URL as-is.
-                    vlog!(verbosity, Verbose, "");
-                    vlog!(verbosity, Verbose,
-                        "⚠  Note: origin fetch URL ({fetch_url}) will be kept as-is."
-                    );
-                    vlog!(verbosity, Verbose,
-                        "   Push URLs will be added — pushes will reach both forges,"
-                    );
-                    vlog!(verbosity, Verbose, "   but fetches will come from the existing origin.");
+                    kept_existing_fetch = Some(fetch_url.clone());
                 }
-                // If replace == true, Step 10 will replace the origin and add push URLs.
             }
-            // If fetch_url == origin_url, Step 10 will add missing push URLs silently.
+            // If fetch_url == origin_url, Step 10 adds missing push URLs silently.
         }
     }
 
-    // Step 10 will continue from here: add push URLs to origin (replacing the
-    // fetch URL first if `replace` was chosen above).
+    vlog!(verbosity, Debug,
+        "  [debug] replace_fetch_url={replace_fetch_url} kept_existing_fetch={kept_existing_fetch:?}"
+    );
+
+    // ── Step 10: Configure remotes ───────────────────────────────────────────
+    //
+    // Three paths depending on what Step 9 found and decided:
+    //
+    //   Absent              → create origin from scratch with both push URLs.
+    //   Present, replaced   → replace fetch URL, then add both push URLs.
+    //   Present, kept/match → leave fetch URL alone, add whichever push URLs
+    //                         are missing (the caller already checked that at
+    //                         least one is absent — the "both present" path
+    //                         returned early in Step 9).
+    match &origin_status {
+        OriginStatus::Absent => {
+            // Non-default (mirror) forge first, default (origin) forge last.
+            // This matches the convention in the Tangled docs and in DESIGN.md
+            // steps 9–10: the origin URL is "re-added" as a push URL after the
+            // mirror, so it appears last in the config.
+            git::create_origin_remote(
+                work_dir,
+                &origin_url,
+                &[mirror_url.as_str(), origin_url.as_str()],
+            )?;
+            vlog!(verbosity, Debug, "  [debug] created origin remote with fetch + 2 push URLs");
+        }
+
+        OriginStatus::Present { fetch_url: _, push_urls } => {
+            if replace_fetch_url {
+                git::set_origin_fetch_url(work_dir, &origin_url)?;
+                vlog!(verbosity, Debug, "  [debug] replaced origin fetch URL → {origin_url}");
+            }
+
+            // Add whichever push URLs are not yet present, preserving the
+            // non-default-first, default-last ordering convention.
+            let mut to_add: Vec<&str> = Vec::new();
+            if !push_urls.iter().any(|u| u == &mirror_url) {
+                to_add.push(mirror_url.as_str());
+            }
+            if !push_urls.iter().any(|u| u == &origin_url) {
+                to_add.push(origin_url.as_str());
+            }
+            vlog!(verbosity, Debug, "  [debug] push URLs to add: {:?}", to_add);
+            if !to_add.is_empty() {
+                git::add_push_urls_to_origin(work_dir, &to_add)?;
+            }
+        }
+    }
+
+    // ── Print final remote state ─────────────────────────────────────────────
+    //
+    // Show a `git remote -v`-style summary of what origin looks like after the
+    // changes. The fetch URL is `origin_url` unless the user chose to keep an
+    // existing URL (`kept_existing_fetch`).
+    let final_fetch_url = match &kept_existing_fetch {
+        Some(url) => url.as_str(),
+        None => origin_url.as_str(),
+    };
+
+    vlog!(verbosity, Verbose, "");
+    // Display mirrors the actual config order: mirror (non-default) first,
+    // origin (default) last — matching `git remote -v` output conventions.
+    vlog!(verbosity, Verbose, "✓ Remotes configured for '{repo_name}':");
+    vlog!(verbosity, Verbose, "");
+    vlog!(verbosity, Verbose, "  origin  {final_fetch_url}  (fetch)");
+    vlog!(verbosity, Verbose, "  origin  {mirror_url}  (push)");
+    vlog!(verbosity, Verbose, "  origin  {origin_url}  (push)");
+    vlog!(verbosity, Verbose, "");
+    vlog!(verbosity, Verbose, "Run `entangle shove` to push all branches and tags to both forges.");
+
+    // ── Post-action note for the "kept existing fetch URL" path ──────────────
+    //
+    // Placed here — after Step 10 — so "was kept" and "have been added" are
+    // factually accurate at the point the user reads them.
+    if let Some(ref existing_url) = kept_existing_fetch {
+        vlog!(verbosity, Verbose, "");
+        vlog!(verbosity, Verbose,
+            "⚠  Note: origin fetch URL ({existing_url}) was kept as-is."
+        );
+        vlog!(verbosity, Verbose,
+            "   Push URLs have been added — pushes will reach both forges,"
+        );
+        vlog!(verbosity, Verbose, "   but fetches will come from this origin.");
+    }
 
     Ok(())
 }
@@ -420,6 +540,15 @@ mod tests {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /// No-op remote validator for unit tests — skips all network I/O.
+    ///
+    /// Pass this wherever `run_with_paths` requires a `remote_validator`.
+    /// Integration tests that spawn the binary use `ENTANGLE_SKIP_REMOTE_CHECK`
+    /// instead; this function is only for in-process unit tests.
+    fn skip_validate(_: &str, _: &str) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
     fn write_valid_config(path: &Path) {
         let cfg = Config {
             github_username: "cyrusae".to_string(),
@@ -455,6 +584,7 @@ mod tests {
             &work_dir,
             false,
             false,
+            skip_validate,
         );
         assert!(result.is_err(), "must error when config is missing");
     }
@@ -466,7 +596,7 @@ mod tests {
         let (_dir, config_path, work_dir) = fresh_dirs();
         assert!(!git::is_git_repo(&work_dir), "precondition: not yet a git repo");
 
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
 
         assert!(
             git::is_git_repo(&work_dir),
@@ -479,9 +609,9 @@ mod tests {
         let (_dir, config_path, work_dir) = fresh_dirs();
 
         // First run — initializes.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
         // Second run — must not error.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
 
         assert!(git::is_git_repo(&work_dir));
     }
@@ -499,6 +629,7 @@ mod tests {
             &work_dir,
             false,
             false,
+            skip_validate,
         );
         assert!(result.is_err(), "invalid repo name must cause an error");
         // No git repo should have been created.
@@ -519,6 +650,7 @@ mod tests {
             &work_dir,
             false,
             false,
+            skip_validate,
         );
         assert!(result.is_err(), "invalid alias must cause an error");
     }
@@ -534,6 +666,7 @@ mod tests {
             &work_dir,
             false,
             false,
+            skip_validate,
         )
         .unwrap();
     }
@@ -600,7 +733,7 @@ mod tests {
     fn run_with_no_origin_proceeds_to_url_preview() {
         // Fresh repo, no remotes — must print the URL preview and return Ok.
         let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
             .expect("must succeed when no origin remote is configured");
         // The test passes if run_with_paths does not error. Output is checked
         // in integration tests.
@@ -611,7 +744,7 @@ mod tests {
         // Origin fetch URL already matches what we'd set — no prompt, proceed.
         let (_dir, config_path, work_dir) = fresh_dirs();
         // First run initializes the git repo.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
         // Set up an origin with a matching URL (what a github-preference config gives).
         append_origin(
             &work_dir,
@@ -619,7 +752,7 @@ mod tests {
             &[],
         );
         // Second run sees matching origin — must not error, no prompt.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
             .expect("must succeed when origin fetch URL matches expected URL");
     }
 
@@ -627,7 +760,7 @@ mod tests {
     fn run_exits_early_when_both_push_urls_already_configured() {
         // Both push URLs present → early exit with success, no changes needed.
         let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
 
         // Add origin with BOTH push URLs already set.
         append_origin(
@@ -640,7 +773,7 @@ mod tests {
         );
 
         // Should return Ok (early exit, not an error).
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
             .expect("must succeed (early exit) when both push URLs are already configured");
     }
 
@@ -649,7 +782,7 @@ mod tests {
         // Only one push URL present → must proceed (not early-exit) so Step 10
         // can add the missing one.
         let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
 
         // Add origin with only the GitHub push URL (Tangled missing).
         append_origin(
@@ -658,7 +791,136 @@ mod tests {
             &["git@github.com:cyrusae/entangle.git"],
         );
 
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false)
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
             .expect("must succeed when only one push URL is configured");
+    }
+
+    // ── Step 10: Verify configured remote state ───────────────────────────────
+    //
+    // These tests use `git::get_origin_status` to read back the actual `.git/config`
+    // state after `run_with_paths` completes, confirming that Step 10 wrote the
+    // correct entries.
+
+    #[test]
+    fn run_configures_origin_remote_in_fresh_repo() {
+        // After the very first run on a fresh directory, origin must have the
+        // expected fetch URL and both push URLs in the correct order:
+        // mirror (Tangled) first, origin (GitHub) last — matching the Tangled
+        // docs convention and DESIGN.md steps 9–10.
+        let (_dir, config_path, work_dir) = fresh_dirs();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+            .unwrap();
+
+        let status = git::get_origin_status(&work_dir).unwrap();
+        match status {
+            git::OriginStatus::Present { fetch_url, push_urls } => {
+                assert_eq!(fetch_url, "git@github.com:cyrusae/entangle.git");
+                assert_eq!(push_urls.len(), 2, "must configure both push URLs: {push_urls:?}");
+                // Order: mirror (Tangled, non-default) first, origin (GitHub, default) last.
+                assert_eq!(push_urls[0], "git@tangled.org:atdot.fyi/entangle",
+                    "Tangled (mirror) must be the first push URL");
+                assert_eq!(push_urls[1], "git@github.com:cyrusae/entangle.git",
+                    "GitHub (origin) must be the second (last) push URL");
+            }
+            git::OriginStatus::Absent => panic!("expected Present after init, got Absent"),
+        }
+    }
+
+    #[test]
+    fn run_adds_both_push_urls_when_origin_has_matching_url_but_none() {
+        // Origin fetch URL already matches what entangle would set, but no push
+        // URLs are configured. run_with_paths must add both without a prompt,
+        // in the correct order (mirror first, origin last).
+        let (_dir, config_path, work_dir) = fresh_dirs();
+        gix::init(&work_dir).unwrap();
+
+        // Write origin with correct fetch URL but no push URLs.
+        {
+            use std::io::Write as _;
+            let cfg = work_dir.join(".git").join("config");
+            let mut f = std::fs::OpenOptions::new().append(true).open(cfg).unwrap();
+            writeln!(f, "\n[remote \"origin\"]").unwrap();
+            writeln!(f, "\turl = git@github.com:cyrusae/entangle.git").unwrap();
+            writeln!(f, "\tfetch = +refs/heads/*:refs/remotes/origin/*").unwrap();
+        }
+
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+            .unwrap();
+
+        let status = git::get_origin_status(&work_dir).unwrap();
+        match status {
+            git::OriginStatus::Present { fetch_url, push_urls } => {
+                assert_eq!(fetch_url, "git@github.com:cyrusae/entangle.git");
+                assert_eq!(push_urls.len(), 2, "both push URLs must be added: {push_urls:?}");
+                // Order: mirror (Tangled, non-default) first, origin (GitHub, default) last.
+                assert_eq!(push_urls[0], "git@tangled.org:atdot.fyi/entangle",
+                    "Tangled (mirror) must be the first push URL");
+                assert_eq!(push_urls[1], "git@github.com:cyrusae/entangle.git",
+                    "GitHub (origin) must be the second (last) push URL");
+            }
+            git::OriginStatus::Absent => panic!("expected Present"),
+        }
+    }
+
+    #[test]
+    fn run_is_fully_idempotent_after_step_10() {
+        // Running twice on the same repo must succeed both times.
+        // Second run sees both push URLs → early-exits cleanly.
+        let (_dir, config_path, work_dir) = fresh_dirs();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+            .unwrap();
+        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+            .unwrap();
+
+        let status = git::get_origin_status(&work_dir).unwrap();
+        match status {
+            git::OriginStatus::Present { push_urls, .. } => {
+                // Must still have exactly the two push URLs — second run must
+                // not have duplicated them.
+                let origin_count = push_urls
+                    .iter()
+                    .filter(|u| u.as_str() == "git@github.com:cyrusae/entangle.git")
+                    .count();
+                let mirror_count = push_urls
+                    .iter()
+                    .filter(|u| u.as_str() == "git@tangled.org:atdot.fyi/entangle")
+                    .count();
+                assert_eq!(origin_count, 1, "origin push URL must not be duplicated");
+                assert_eq!(mirror_count, 1, "mirror push URL must not be duplicated");
+            }
+            git::OriginStatus::Absent => panic!("expected Present"),
+        }
+    }
+
+    #[test]
+    fn run_with_alias_uses_alias_for_tangled_push_url() {
+        // When an alias is supplied, the Tangled push URL must use the alias
+        // instead of the primary repo name.
+        let (_dir, config_path, work_dir) = fresh_dirs();
+        run_with_paths(
+            Some("my-repo".to_string()),
+            Some("mirror-alias".to_string()),
+            &config_path,
+            &work_dir,
+            false,
+            false,
+            skip_validate,
+        )
+        .unwrap();
+
+        let status = git::get_origin_status(&work_dir).unwrap();
+        match status {
+            git::OriginStatus::Present { push_urls, .. } => {
+                assert!(
+                    push_urls.iter().any(|u| u.contains("mirror-alias")),
+                    "Tangled push URL must use the alias: {push_urls:?}"
+                );
+                assert!(
+                    push_urls.iter().any(|u| u.contains("my-repo")),
+                    "GitHub push URL must use the primary repo name: {push_urls:?}"
+                );
+            }
+            git::OriginStatus::Absent => panic!("expected Present"),
+        }
     }
 }

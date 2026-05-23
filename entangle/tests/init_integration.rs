@@ -58,11 +58,16 @@ fn write_valid_config(path: &Path) {
 }
 
 /// Spawn `entangle init` with the given extra args, config path, and work dir.
+///
+/// Sets `ENTANGLE_SKIP_REMOTE_CHECK=1` so the binary skips SSH ls-refs calls.
+/// Integration tests exercise everything except live network reachability;
+/// the network path is covered by the `#[ignore]` tests in `remote.rs`.
 fn run_init(args: &[&str], config_path: &Path, work_dir: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_entangle"))
         .arg("init")
         .args(args)
         .env("ENTANGLE_CONFIG_PATH", config_path)
+        .env("ENTANGLE_SKIP_REMOTE_CHECK", "1")
         .current_dir(work_dir)
         .output()
         .expect("failed to spawn entangle init")
@@ -541,6 +546,7 @@ mod pty_overwrite_tests {
             cmd.arg(a);
         }
         cmd.env("ENTANGLE_CONFIG_PATH", config_path);
+        cmd.env("ENTANGLE_SKIP_REMOTE_CHECK", "1");
         cmd.current_dir(work_dir);
         cmd
     }

@@ -33,7 +33,7 @@ use std::path::Path;
 
 use dialoguer::{theme::ColorfulTheme, Input};
 
-use crate::config::{config_path, Config, ConfigError, VerbosityLevel};
+use crate::config::{Config, VerbosityLevel};
 use crate::git;
 use crate::remote;
 use crate::urls::resolve_urls;
@@ -78,10 +78,10 @@ pub fn run(
     quiet: bool,
     debug: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = config_path()?;
+    let config = Config::load()?;
     let work_dir = std::env::current_dir()?;
     let skip_check = std::env::var("ENTANGLE_SKIP_REMOTE_CHECK").is_ok();
-    run_with_paths(repo, alias, &path, &work_dir, quiet, debug, |origin, mirror| {
+    run_with_paths(repo, alias, config, &work_dir, quiet, debug, |origin, mirror| {
         if skip_check {
             return Ok(());
         }
@@ -110,21 +110,12 @@ pub fn run(
 pub fn run_with_paths(
     repo: Option<String>,
     alias: Option<String>,
-    config_path: &Path,
+    config: Config,
     work_dir: &Path,
     quiet: bool,
     debug: bool,
     remote_validator: impl Fn(&str, &str) -> Result<(), Box<dyn std::error::Error>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // ── 1. Load config ───────────────────────────────────────────────────────
-    let config = match Config::load_from_path(config_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error: {}", config_error_message(&e));
-            return Err(e.into());
-        }
-    };
-
     let verbosity = config.effective_verbosity(quiet, debug);
 
     // ── 2 & 3. Collect and validate repo name ───────────────────────────────
@@ -483,50 +474,6 @@ fn is_cancelled(e: &dialoguer::Error) -> bool {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Config error messaging
-// ---------------------------------------------------------------------------
-
-/// Produce a human-readable, actionable message for each `ConfigError` variant.
-///
-/// Each message tells the user not just what went wrong but what to run next.
-fn config_error_message(e: &ConfigError) -> String {
-    match e {
-        ConfigError::NoPlatformConfigDir => {
-            "Could not determine the platform config directory. \
-             Set ENTANGLE_CONFIG_PATH to an explicit path."
-                .to_string()
-        }
-        ConfigError::NotFound => {
-            "No configuration found. Run `entangle setup` to get started.".to_string()
-        }
-        ConfigError::Unreadable(_) => {
-            "Could not read the configuration file (permission error?). \
-             Check file permissions or re-run `entangle setup`."
-                .to_string()
-        }
-        ConfigError::Empty => {
-            "Configuration file is empty. Run `entangle setup`.".to_string()
-        }
-        ConfigError::MissingGithubUsername => {
-            "GitHub username not set. Run `entangle set gh-user <username>`.".to_string()
-        }
-        ConfigError::MissingTangledUsername => {
-            "Tangled username not set. Run `entangle set tngl-user <handle>`.".to_string()
-        }
-        ConfigError::MissingOriginPreference => {
-            "Origin preference not set. Run `entangle setup` or \
-             `entangle set origin <github|tangled>`."
-                .to_string()
-        }
-        ConfigError::Corrupted(_) => {
-            "Configuration file is corrupted. Re-run `entangle setup` to recreate it.".to_string()
-        }
-        ConfigError::CannotCreateDir(_) | ConfigError::CannotWriteFile(_) => {
-            format!("Configuration I/O error: {e}. Check file permissions.")
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -549,54 +496,33 @@ mod tests {
         Ok(())
     }
 
-    fn write_valid_config(path: &Path) {
-        let cfg = Config {
+    /// A valid config matching the sample data used throughout the tests.
+    fn test_config() -> Config {
+        Config {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
             origin_preference: OriginPreference::Github,
             verbosity_preference: Default::default(),
-        };
-        cfg.save_to_path(path).unwrap();
+        }
     }
 
-    fn fresh_dirs() -> (TempDir, std::path::PathBuf, std::path::PathBuf) {
+    /// Create a throwaway work directory. Returns the [`TempDir`] guard (keep
+    /// it alive for the duration of the test) and the path to the work dir.
+    fn fresh_work_dir() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();
-        let config_path = dir.path().join("config.json");
         let work_dir = dir.path().join("work");
         std::fs::create_dir(&work_dir).unwrap();
-        write_valid_config(&config_path);
-        (dir, config_path, work_dir)
-    }
-
-    // ── Config error paths ────────────────────────────────────────────────────
-
-    #[test]
-    fn missing_config_returns_error() {
-        let dir = TempDir::new().unwrap();
-        let config_path = dir.path().join("nonexistent.json");
-        let work_dir = dir.path().join("work");
-        std::fs::create_dir(&work_dir).unwrap();
-
-        let result = run_with_paths(
-            Some("myrepo".to_string()),
-            None,
-            &config_path,
-            &work_dir,
-            false,
-            false,
-            skip_validate,
-        );
-        assert!(result.is_err(), "must error when config is missing");
+        (dir, work_dir)
     }
 
     // ── Git init behaviour ────────────────────────────────────────────────────
 
     #[test]
     fn run_initializes_git_repo_in_fresh_directory() {
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
         assert!(!git::is_git_repo(&work_dir), "precondition: not yet a git repo");
 
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate).unwrap();
 
         assert!(
             git::is_git_repo(&work_dir),
@@ -606,12 +532,12 @@ mod tests {
 
     #[test]
     fn run_is_idempotent_on_existing_repo() {
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
 
         // First run — initializes.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate).unwrap();
         // Second run — must not error.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate).unwrap();
 
         assert!(git::is_git_repo(&work_dir));
     }
@@ -620,12 +546,12 @@ mod tests {
 
     #[test]
     fn invalid_repo_name_returns_error() {
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
 
         let result = run_with_paths(
             Some("-invalid-leading-hyphen".to_string()),
             None,
-            &config_path,
+            test_config(),
             &work_dir,
             false,
             false,
@@ -641,12 +567,12 @@ mod tests {
 
     #[test]
     fn invalid_alias_returns_error() {
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
 
         let result = run_with_paths(
             Some("my-repo".to_string()),
             Some("-bad-alias".to_string()),
-            &config_path,
+            test_config(),
             &work_dir,
             false,
             false,
@@ -657,12 +583,12 @@ mod tests {
 
     #[test]
     fn valid_alias_is_accepted() {
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
 
         run_with_paths(
             Some("my-repo".to_string()),
             Some("mirror-name".to_string()),
-            &config_path,
+            test_config(),
             &work_dir,
             false,
             false,
@@ -671,46 +597,14 @@ mod tests {
         .unwrap();
     }
 
-    // ── config_error_message ──────────────────────────────────────────────────
-
-    #[test]
-    fn error_message_for_not_found_mentions_setup() {
-        let msg = config_error_message(&ConfigError::NotFound);
-        assert!(msg.contains("setup"), "NotFound message must mention setup: {msg}");
-    }
-
-    #[test]
-    fn error_message_for_missing_github_username_mentions_set() {
-        let msg = config_error_message(&ConfigError::MissingGithubUsername);
-        assert!(
-            msg.contains("gh-user"),
-            "MissingGithubUsername must mention 'gh-user': {msg}"
-        );
-    }
-
-    #[test]
-    fn error_message_for_missing_tangled_username_mentions_set() {
-        let msg = config_error_message(&ConfigError::MissingTangledUsername);
-        assert!(
-            msg.contains("tngl-user"),
-            "MissingTangledUsername must mention 'tngl-user': {msg}"
-        );
-    }
-
-    #[test]
-    fn error_message_for_corrupted_mentions_setup() {
-        let msg = config_error_message(&ConfigError::Corrupted("bad json".to_string()));
-        assert!(msg.contains("setup"), "Corrupted message must mention setup: {msg}");
-    }
-
     // ── Remote inspection paths (non-interactive) ─────────────────────────────
     //
     // Tests that exercise Step 9 logic without triggering dialoguer (which
     // needs a TTY). All cases here are ones where no prompt is shown:
     //
-    //   (a) No `origin` remote       → proceeds silently to Step 10 placeholder
+    //   (a) No `origin` remote       → proceeds silently to Step 10
     //   (b) Both push URLs present   → early-exit success message
-    //   (c) Origin URL matches       → proceeds silently to Step 10 placeholder
+    //   (c) Origin URL matches       → proceeds silently to Step 10
     //
     // Cases that trigger a prompt (origin URL mismatch) are tested via
     // PTY integration tests in `tests/init_integration.rs`.
@@ -732,35 +626,29 @@ mod tests {
     #[test]
     fn run_with_no_origin_proceeds_to_url_preview() {
         // Fresh repo, no remotes — must print the URL preview and return Ok.
-        let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        let (_dir, work_dir) = fresh_work_dir();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .expect("must succeed when no origin remote is configured");
-        // The test passes if run_with_paths does not error. Output is checked
-        // in integration tests.
     }
 
     #[test]
     fn run_with_matching_origin_url_proceeds_to_url_preview() {
         // Origin fetch URL already matches what we'd set — no prompt, proceed.
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
         // First run initializes the git repo.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate).unwrap();
         // Set up an origin with a matching URL (what a github-preference config gives).
-        append_origin(
-            &work_dir,
-            "git@github.com:cyrusae/entangle.git",
-            &[],
-        );
+        append_origin(&work_dir, "git@github.com:cyrusae/entangle.git", &[]);
         // Second run sees matching origin — must not error, no prompt.
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .expect("must succeed when origin fetch URL matches expected URL");
     }
 
     #[test]
     fn run_exits_early_when_both_push_urls_already_configured() {
         // Both push URLs present → early exit with success, no changes needed.
-        let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
+        let (_dir, work_dir) = fresh_work_dir();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate).unwrap();
 
         // Add origin with BOTH push URLs already set.
         append_origin(
@@ -773,7 +661,7 @@ mod tests {
         );
 
         // Should return Ok (early exit, not an error).
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .expect("must succeed (early exit) when both push URLs are already configured");
     }
 
@@ -781,8 +669,8 @@ mod tests {
     fn run_proceeds_when_only_one_push_url_present() {
         // Only one push URL present → must proceed (not early-exit) so Step 10
         // can add the missing one.
-        let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate).unwrap();
+        let (_dir, work_dir) = fresh_work_dir();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate).unwrap();
 
         // Add origin with only the GitHub push URL (Tangled missing).
         append_origin(
@@ -791,7 +679,7 @@ mod tests {
             &["git@github.com:cyrusae/entangle.git"],
         );
 
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .expect("must succeed when only one push URL is configured");
     }
 
@@ -807,8 +695,8 @@ mod tests {
         // expected fetch URL and both push URLs in the correct order:
         // mirror (Tangled) first, origin (GitHub) last — matching the Tangled
         // docs convention and DESIGN.md steps 9–10.
-        let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        let (_dir, work_dir) = fresh_work_dir();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .unwrap();
 
         let status = git::get_origin_status(&work_dir).unwrap();
@@ -831,7 +719,7 @@ mod tests {
         // Origin fetch URL already matches what entangle would set, but no push
         // URLs are configured. run_with_paths must add both without a prompt,
         // in the correct order (mirror first, origin last).
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
         gix::init(&work_dir).unwrap();
 
         // Write origin with correct fetch URL but no push URLs.
@@ -844,7 +732,7 @@ mod tests {
             writeln!(f, "\tfetch = +refs/heads/*:refs/remotes/origin/*").unwrap();
         }
 
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .unwrap();
 
         let status = git::get_origin_status(&work_dir).unwrap();
@@ -866,10 +754,10 @@ mod tests {
     fn run_is_fully_idempotent_after_step_10() {
         // Running twice on the same repo must succeed both times.
         // Second run sees both push URLs → early-exits cleanly.
-        let (_dir, config_path, work_dir) = fresh_dirs();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        let (_dir, work_dir) = fresh_work_dir();
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .unwrap();
-        run_with_paths(Some("entangle".to_string()), None, &config_path, &work_dir, false, false, skip_validate)
+        run_with_paths(Some("entangle".to_string()), None, test_config(), &work_dir, false, false, skip_validate)
             .unwrap();
 
         let status = git::get_origin_status(&work_dir).unwrap();
@@ -896,11 +784,11 @@ mod tests {
     fn run_with_alias_uses_alias_for_tangled_push_url() {
         // When an alias is supplied, the Tangled push URL must use the alias
         // instead of the primary repo name.
-        let (_dir, config_path, work_dir) = fresh_dirs();
+        let (_dir, work_dir) = fresh_work_dir();
         run_with_paths(
             Some("my-repo".to_string()),
             Some("mirror-alias".to_string()),
-            &config_path,
+            test_config(),
             &work_dir,
             false,
             false,

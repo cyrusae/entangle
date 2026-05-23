@@ -28,8 +28,6 @@
 //! with `entangle set` and makes them testable with piped stdin — `Select`
 //! requires arrow-key input that doesn't work in non-TTY environments.
 
-use std::path::Path;
-
 use dialoguer::{theme::ColorfulTheme, Confirm, Input};
 
 use crate::config::{config_path, Config, OriginPreference, PartialConfig};
@@ -40,24 +38,21 @@ use crate::validate::{validate_github_username, validate_tangled_username};
 // ---------------------------------------------------------------------------
 
 /// Entry point called by `main.rs` for the `setup` subcommand.
+///
+/// Loads any existing config with [`PartialConfig::load_from_path`] (so
+/// pre-filled values can be offered to the user), collects all three fields
+/// interactively, then writes the final config with [`Config::save`].
+///
+/// `Config::save` calls [`config_path`] internally, which respects the
+/// `ENTANGLE_CONFIG_PATH` environment variable — integration tests set that
+/// variable so writes go to a throwaway location without touching the real
+/// config directory.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path()?;
-    run_with_config_path(&path)
-}
-
-// ---------------------------------------------------------------------------
-// Testable core
-// ---------------------------------------------------------------------------
-
-/// Run setup against an explicit config path.
-///
-/// Separated from [`run`] so tests can pass a [`tempfile`] path instead of
-/// touching the real platform config directory.
-pub fn run_with_config_path(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let theme = ColorfulTheme::default();
 
     // ── 1. Load whatever is already on disk ──────────────────────────────────
-    let existing = PartialConfig::load_from_path(path)?;
+    let existing = PartialConfig::load_from_path(&path)?;
 
     println!("Setting up entangle. Press Enter to keep an existing value.");
     println!();
@@ -87,6 +82,9 @@ pub fn run_with_config_path(path: &Path) -> Result<(), Box<dyn std::error::Error
         };
 
     // ── 3. Write — only reached if all three prompts completed ───────────────
+    // All values are collected in memory before any file I/O. If any prompt
+    // returned None above (cancelled), we returned early; this point is only
+    // reached when the user has successfully answered all three prompts.
     let config = Config {
         github_username,
         tangled_username,
@@ -96,7 +94,7 @@ pub fn run_with_config_path(path: &Path) -> Result<(), Box<dyn std::error::Error
         // default, so it won't appear in the JSON file unless changed).
         verbosity_preference: Default::default(),
     };
-    config.save_to_path(path)?;
+    config.save()?;
 
     println!();
     println!("✓ Configuration saved.");

@@ -328,3 +328,71 @@ Work through each section of TESTING.md and confirm coverage:
 For each case, either confirm it's already covered by an earlier step's tests or add a new test here.
 
 **📋 Final documentation pass**: Once hardening is done, update DESIGN.md and TESTING.md to reflect anything discovered during implementation that changed the approach. Note any cases deferred to post-MVP.
+
+---
+
+## Step 14: Release packaging and CI/CD refinement
+
+**Goal**: Ship a proper v1.0.0 to crates.io, set up automated release tooling, and harden the CI pipeline for ongoing maintenance. This step happens after the codebase is feature-complete and stabilized on a `main` branch, once development has moved to a dedicated branch workflow.
+
+### Branch strategy (prerequisite)
+
+Before this step, establish the long-term branch model:
+- `main` — stable, always releasable; protected branch
+- `dev` (or `next`) — integration branch; PRs target this first
+- Feature branches off `dev`; merge to `dev`; promote `dev` → `main` for releases
+
+CI should run on both `main` and `dev` (and all PRs targeting either).
+
+### Cargo.toml metadata
+
+Fill in the fields required by crates.io before first publish:
+
+```toml
+[package]
+description = "Easy setup for mirroring GitHub repos to Tangled.org"
+license = "MIT"          # or "MIT OR Apache-2.0" — decide before publishing
+repository = "https://github.com/cyrusae/entangle"
+homepage = "https://github.com/cyrusae/entangle"
+documentation = "https://docs.rs/entangle"
+keywords = ["git", "tangled", "mirror", "forge", "atproto"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+```
+
+Run `cargo publish --dry-run` to catch any missing fields before the real publish.
+
+### release-plz
+
+[release-plz](https://release-plz.dev) automates: version bumps from Conventional Commits, CHANGELOG.md updates, GitHub releases, and crates.io publishing — all triggered by merging to `main`.
+
+Setup steps:
+1. Add the `release-plz` GitHub Actions workflow (see release-plz docs for the standard snippet)
+2. Generate a crates.io API token; add it as `CARGO_REGISTRY_TOKEN` in repo secrets
+3. Grant the workflow permission to push tags and create GitHub releases (`contents: write`, `pull-requests: write`)
+4. Configure `.release-plz.toml` if non-default behavior is needed (e.g., to control which workspace members are published)
+
+Because chainlink already writes `CHANGELOG.md` entries per-issue, the changelog release-plz generates will build on that foundation — review the format expectations and align if needed.
+
+### CI/CD pipeline refinements
+
+Additions to the GitHub Actions workflow once release infra is in place:
+
+- **`cargo deny`**: license compatibility and known-vulnerability audit on every PR (`cargo-deny` action, `deny.toml`)
+- **Coverage reporting**: `cargo llvm-cov` → upload to Codecov or similar; add a badge to README
+- **Minimum Supported Rust Version (MSRV)**: decide on a floor (e.g., stable-2 releases); add an `msrv` job that builds on that version
+- **Release job**: triggered only on version tags (`v*`); runs `cargo publish` with `CARGO_REGISTRY_TOKEN`
+- **`cargo doc`**: build and publish docs to GitHub Pages on every `main` push
+
+### Pre-publish checklist
+
+- [ ] `cargo publish --dry-run` passes
+- [ ] All public items have documentation comments
+- [ ] README covers installation (`cargo install entangle`), quickstart, and all four subcommands
+- [ ] CHANGELOG.md has a clean v1.0.0 entry
+- [ ] License file present and correct
+- [ ] No `todo!()`, `unimplemented!()`, or `#[allow(dead_code)]` remaining
+- [ ] Windows tested (CI matrix green)
+- [ ] `cargo deny check` passes (no GPL dependencies, no known CVEs)
+
+**Tests**: No new unit/integration tests in this step — the test suite already exists. The "test" here is that CI is fully green on the release commit and `cargo publish --dry-run` reports no errors.

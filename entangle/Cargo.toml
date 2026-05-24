@@ -1,8 +1,14 @@
 [package]
 name = "entangle"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
 description = "Easy setup for mirroring GitHub repos to Tangled.org in one command"
+license = "MIT"
+repository = "https://github.com/cyrusae/entangle"
+homepage = "https://github.com/cyrusae/entangle"
+readme = "README.md"
+keywords = ["git", "tangled", "mirror", "forge", "atproto"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 # Argument parsing — derive macros for declarative CLI definition

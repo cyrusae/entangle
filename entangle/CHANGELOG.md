@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix push URL order: mirror (non-default) first, origin (default) last (#11)
 
 ### Changed
+- Add Cargo.toml publish metadata for alpha release (#21)
 - Draft README with install, usage, caveats (#20)
 - Add Step 14 to PLAN.md: release packaging, crates.io, CI/CD refinement (#18)
 - Add GitHub Actions CI workflow (cargo test + clippy + fmt on ubuntu/macos/windows) (#17)

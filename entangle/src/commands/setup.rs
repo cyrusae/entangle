@@ -277,7 +277,6 @@ mod tests {
     use super::*;
     use crate::config::{Config, OriginPreference, PartialConfig};
 
-
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     fn valid_config() -> Config {

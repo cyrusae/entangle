@@ -14,7 +14,13 @@ entangle shove    # first-time push to both forges
 
 ## Installation
 
-entangle is not yet published to crates.io. Install directly from source:
+```bash
+cargo install entangle-mirror
+```
+
+The package is named `entangle-mirror` on crates.io (the name `entangle` was already taken); the installed binary is called `entangle`.
+
+Or install directly from source:
 
 ```bash
 cargo install --git https://github.com/cyrusae/entangle --locked

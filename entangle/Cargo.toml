@@ -1,5 +1,5 @@
 [package]
-name = "entangle"
+name = "entangle-mirror"
 version = "0.1.0-alpha.1"
 edition = "2024"
 description = "Easy setup for mirroring GitHub repos to Tangled.org in one command"
@@ -9,6 +9,13 @@ homepage = "https://github.com/cyrusae/entangle"
 readme = "README.md"
 keywords = ["git", "tangled", "mirror", "forge", "atproto"]
 categories = ["command-line-utilities", "development-tools"]
+
+# Keep the installed binary named `entangle` even though the crates.io package
+# is `entangle-mirror` (the name `entangle` was already taken on crates.io).
+# Users run `cargo install entangle-mirror` and get the `entangle` command.
+[[bin]]
+name = "entangle"
+path = "src/main.rs"
 
 [dependencies]
 # Argument parsing — derive macros for declarative CLI definition

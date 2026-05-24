@@ -1094,4 +1094,42 @@ mod tests {
             git::OriginStatus::Absent => panic!("expected Present"),
         }
     }
+
+    // ── Resilience: corrupt .git/config ──────────────────────────────────────
+
+    /// Verifies that a corrupt `.git/config` does not cause a panic.
+    ///
+    /// The exact outcome (Ok or Err) depends on how lenient gix is about the
+    /// specific corruption. What must NOT happen is an unwrap panic or process
+    /// abort — the test passing without panicking is the verification.
+    #[test]
+    fn corrupt_git_config_does_not_panic() {
+        let (_dir, work_dir) = fresh_work_dir();
+        gix::init(&work_dir).unwrap();
+
+        // Overwrite .git/config with a syntactically broken section header
+        // (missing closing bracket). This is the corruption pattern the
+        // adversarial review flagged as a potential panic source.
+        let config_path = work_dir.join(".git").join("config");
+        std::fs::write(
+            &config_path,
+            "[core\n\trepositoryformatversion = 0\nfilemode = true\n",
+        )
+        .unwrap();
+
+        // Must return Ok or Err — not panic.
+        let result = run_with_paths(
+            Some("entangle".to_string()),
+            None,
+            test_config(),
+            &work_dir,
+            false,
+            false,
+            skip_validate,
+        );
+        // Either outcome is valid: gix may tolerate the corruption (Ok) or
+        // surface it as an error (Err). The test asserts only that no panic
+        // occurred, which is proven by reaching this line.
+        drop(result);
+    }
 }

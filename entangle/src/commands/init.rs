@@ -35,6 +35,7 @@ use dialoguer::{Input, theme::ColorfulTheme};
 
 use crate::config::{Config, VerbosityLevel};
 use crate::git;
+use crate::output;
 use crate::remote;
 use crate::urls::resolve_urls;
 use crate::validate::validate_repo_name;
@@ -136,10 +137,8 @@ pub fn run_with_paths(
     // The alias, if not given as a second CLI arg, is simply absent — no prompt.
     let (repo_name, interactive) = match repo {
         Some(r) => {
-            let v = validate_repo_name(&r).map_err(|e| {
-                eprintln!("Error: {e}");
-                e
-            })?;
+            // Validation error propagates via ? — main.rs prints "Error: …".
+            let v = validate_repo_name(&r)?;
             (v, false)
         }
         None => (prompt_repo_name()?, true),
@@ -148,10 +147,7 @@ pub fn run_with_paths(
     let alias_name: Option<String> = match (alias, interactive) {
         // Alias supplied via CLI — validate it.
         (Some(a), _) => {
-            let v = validate_repo_name(&a).map_err(|e| {
-                eprintln!("Error: {e}");
-                e
-            })?;
+            let v = validate_repo_name(&a)?;
             Some(v)
         }
         // Interactive mode, no CLI alias → prompt (blank = no alias).
@@ -169,11 +165,22 @@ pub fn run_with_paths(
         vlog!(
             verbosity,
             Verbose,
-            "Folder is not a git repository — initializing..."
+            "{}",
+            output::progress("Folder is not a git repository — initializing...")
         );
-        vlog!(verbosity, Verbose, "✓ Git repository initialized.");
+        vlog!(
+            verbosity,
+            Verbose,
+            "{}",
+            output::success("Git repository initialized.")
+        );
     } else {
-        vlog!(verbosity, Verbose, "✓ Git repository detected.");
+        vlog!(
+            verbosity,
+            Verbose,
+            "{}",
+            output::success("Git repository detected.")
+        );
     }
 
     // ── 6. Suggest .gitignore / README.md if absent ──────────────────────────
@@ -181,22 +188,34 @@ pub fn run_with_paths(
         vlog!(
             verbosity,
             Verbose,
-            "  Tip: Add a .gitignore to avoid committing build artifacts."
+            "{}",
+            output::tip("Add a .gitignore to avoid committing build artifacts.")
         );
     }
     if !git::has_readme(work_dir) {
         vlog!(
             verbosity,
             Verbose,
-            "  Tip: Add a README.md to describe your project."
+            "{}",
+            output::tip("Add a README.md to describe your project.")
         );
     }
 
     // ── 6b. Preview resolved URLs ─────────────────────────────────────────────
     vlog!(verbosity, Verbose, "");
     vlog!(verbosity, Verbose, "Configuring remotes for '{repo_name}':");
-    vlog!(verbosity, Verbose, "  Origin (fetch + push): {origin_url}");
-    vlog!(verbosity, Verbose, "  Mirror (push only):    {mirror_url}");
+    vlog!(
+        verbosity,
+        Verbose,
+        "  Origin (fetch + push): {}",
+        output::url(&origin_url)
+    );
+    vlog!(
+        verbosity,
+        Verbose,
+        "  Mirror (push only):    {}",
+        output::url(&mirror_url)
+    );
 
     // ── 7. Inspect existing remotes ──────────────────────────────────────────
     use crate::git::OriginStatus;
@@ -206,7 +225,8 @@ pub fn run_with_paths(
     vlog!(
         verbosity,
         Debug,
-        "  [debug] origin status: {:?}",
+        "  {} origin status: {:?}",
+        output::debug_tag(),
         origin_status
     );
 
@@ -222,7 +242,8 @@ pub fn run_with_paths(
         vlog!(
             verbosity,
             Debug,
-            "  [debug] push_urls={push_urls:?} has_origin_push={has_origin_push} has_mirror_push={has_mirror_push}"
+            "  {} push_urls={push_urls:?} has_origin_push={has_origin_push} has_mirror_push={has_mirror_push}",
+            output::debug_tag()
         );
 
         if has_origin_push && has_mirror_push {
@@ -230,12 +251,14 @@ pub fn run_with_paths(
             vlog!(
                 verbosity,
                 Verbose,
-                "✓ Both push remotes are already configured. Nothing to do."
+                "{}",
+                output::success("Both push remotes are already configured. Nothing to do.")
             );
             vlog!(
                 verbosity,
                 Verbose,
-                "  Run `entangle shove` to push all branches and tags to both forges."
+                "  Run {} to push all branches and tags to both forges.",
+                output::cmd("entangle shove")
             );
             return Ok(());
         }
@@ -253,12 +276,27 @@ pub fn run_with_paths(
     //   • NotFound/Auth    → hard stop; user must fix the URL or SSH key first.
     //   • NetworkError declined → OfflineAborted; user cancelled at the prompt.
     vlog!(verbosity, Verbose, "");
-    vlog!(verbosity, Verbose, "Checking remote accessibility…");
-    if let Err(e) = remote_validator(&origin_url, &mirror_url) {
-        eprintln!("Error: {e}");
-        return Err(e);
+    // Spin while the SSH ls-refs call runs — gix is silent during the check
+    // so without a spinner the terminal appears frozen for several seconds.
+    // In non-TTY environments (CI, piped output) indicatif disables itself.
+    let spinner = if verbosity >= VerbosityLevel::Verbose {
+        Some(output::remote_check_spinner(
+            "Checking remote accessibility…",
+        ))
+    } else {
+        None
+    };
+    let check_result = remote_validator(&origin_url, &mirror_url);
+    if let Some(sp) = spinner {
+        sp.finish_and_clear();
     }
-    vlog!(verbosity, Verbose, "✓ Both remotes are accessible.");
+    check_result?;
+    vlog!(
+        verbosity,
+        Verbose,
+        "{}",
+        output::success("Both remotes are accessible.")
+    );
 
     // ── 7c. Handle overwrite prompt if fetch URL doesn't match ───────────────
     //
@@ -281,7 +319,8 @@ pub fn run_with_paths(
             vlog!(
                 verbosity,
                 Debug,
-                "  [debug] no origin remote found; will create from scratch"
+                "  {} no origin remote found; will create from scratch",
+                output::debug_tag()
             );
         }
 
@@ -295,7 +334,8 @@ pub fn run_with_paths(
                 vlog!(
                     verbosity,
                     Debug,
-                    "  [debug] fetch URL mismatch: existing={fetch_url} expected={origin_url}"
+                    "  {} fetch URL mismatch: existing={fetch_url} expected={origin_url}",
+                    output::debug_tag()
                 );
 
                 let replace = prompt_replace_origin(fetch_url, &origin_url)?;
@@ -320,7 +360,8 @@ pub fn run_with_paths(
     vlog!(
         verbosity,
         Debug,
-        "  [debug] replace_fetch_url={replace_fetch_url} kept_existing_fetch={kept_existing_fetch:?}"
+        "  {} replace_fetch_url={replace_fetch_url} kept_existing_fetch={kept_existing_fetch:?}",
+        output::debug_tag()
     );
 
     // ── Step 10: Configure remotes ───────────────────────────────────────────
@@ -347,7 +388,8 @@ pub fn run_with_paths(
             vlog!(
                 verbosity,
                 Debug,
-                "  [debug] created origin remote with fetch + 2 push URLs"
+                "  {} created origin remote with fetch + 2 push URLs",
+                output::debug_tag()
             );
         }
 
@@ -360,7 +402,8 @@ pub fn run_with_paths(
                 vlog!(
                     verbosity,
                     Debug,
-                    "  [debug] replaced origin fetch URL → {origin_url}"
+                    "  {} replaced origin fetch URL → {origin_url}",
+                    output::debug_tag()
                 );
             }
 
@@ -373,7 +416,13 @@ pub fn run_with_paths(
             if !push_urls.iter().any(|u| u == &origin_url) {
                 to_add.push(origin_url.as_str());
             }
-            vlog!(verbosity, Debug, "  [debug] push URLs to add: {:?}", to_add);
+            vlog!(
+                verbosity,
+                Debug,
+                "  {} push URLs to add: {:?}",
+                output::debug_tag(),
+                to_add
+            );
             if !to_add.is_empty() {
                 git::add_push_urls_to_origin(work_dir, &to_add)?;
             }
@@ -396,17 +445,34 @@ pub fn run_with_paths(
     vlog!(
         verbosity,
         Verbose,
-        "✓ Remotes configured for '{repo_name}':"
+        "{}",
+        output::success(&format!("Remotes configured for '{repo_name}':"))
     );
-    vlog!(verbosity, Verbose, "");
-    vlog!(verbosity, Verbose, "  origin  {final_fetch_url}  (fetch)");
-    vlog!(verbosity, Verbose, "  origin  {mirror_url}  (push)");
-    vlog!(verbosity, Verbose, "  origin  {origin_url}  (push)");
     vlog!(verbosity, Verbose, "");
     vlog!(
         verbosity,
         Verbose,
-        "Run `entangle shove` to push all branches and tags to both forges."
+        "  origin  {}  (fetch)",
+        output::url(final_fetch_url)
+    );
+    vlog!(
+        verbosity,
+        Verbose,
+        "  origin  {}  (push)",
+        output::url(&mirror_url)
+    );
+    vlog!(
+        verbosity,
+        Verbose,
+        "  origin  {}  (push)",
+        output::url(&origin_url)
+    );
+    vlog!(verbosity, Verbose, "");
+    vlog!(
+        verbosity,
+        Verbose,
+        "Run {} to push all branches and tags to both forges.",
+        output::cmd("entangle shove")
     );
 
     // ── Post-action note for the "kept existing fetch URL" path ──────────────
@@ -418,7 +484,10 @@ pub fn run_with_paths(
         vlog!(
             verbosity,
             Verbose,
-            "⚠  Note: origin fetch URL ({existing_url}) was kept as-is."
+            "{}",
+            output::warn(&format!(
+                "Note: origin fetch URL ({existing_url}) was kept as-is."
+            ))
         );
         vlog!(
             verbosity,
@@ -502,7 +571,7 @@ fn prompt_repo_name() -> Result<String, Box<dyn std::error::Error>> {
 
         match validate_repo_name(&raw) {
             Ok(validated) => return Ok(validated),
-            Err(e) => eprintln!("  ✗ {e}"),
+            Err(e) => eprintln!("{}", output::error_inline(&e.to_string())),
         }
     }
 }

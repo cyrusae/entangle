@@ -21,6 +21,7 @@ use std::path::Path;
 
 use crate::cli::SetKey;
 use crate::config::{OriginPreference, PartialConfig, config_path};
+use crate::output;
 use crate::validate::{validate_github_username, validate_tangled_username};
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ pub fn run_with_config_path(
     partial.save_to_path(config_path)?;
 
     // ── 5. Confirm ───────────────────────────────────────────────────────────
-    println!("{confirmation}");
+    println!("{}", output::success(&confirmation));
 
     Ok(())
 }

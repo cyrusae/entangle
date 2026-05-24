@@ -26,6 +26,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use crate::output;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -85,7 +87,10 @@ pub fn run_with_paths(work_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
     // Because origin has two pushurl entries, `git push origin --all` sends
     // to both GitHub and Tangled in one invocation. Git inherits the calling
     // terminal's SSH agent, so auth works the same as a normal git push.
-    println!("Pushing all branches to both forges…");
+    println!(
+        "{}",
+        output::progress("Pushing all branches to both forges…")
+    );
     let branch_status = Command::new("git")
         .args(["push", "origin", "--all"])
         .current_dir(work_dir)
@@ -94,13 +99,14 @@ pub fn run_with_paths(work_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
         let code = branch_status.code().unwrap_or(1);
         return Err(format!(
             "branch push failed (exit {code}). \
-             Check the output above for details, fix the issue, and re-run `entangle shove`."
+             Check the output above for details, fix the issue, and re-run {}.",
+            output::cmd("entangle shove")
         )
         .into());
     }
 
     // ── 5. Push all tags to both forges ──────────────────────────────────────
-    println!("Pushing tags to both forges…");
+    println!("{}", output::progress("Pushing tags to both forges…"));
     let tag_status = Command::new("git")
         .args(["push", "origin", "--tags"])
         .current_dir(work_dir)
@@ -109,12 +115,16 @@ pub fn run_with_paths(work_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
         let code = tag_status.code().unwrap_or(1);
         return Err(format!(
             "tag push failed (exit {code}). \
-             Check the output above for details, fix the issue, and re-run `entangle shove`."
+             Check the output above for details, fix the issue, and re-run {}.",
+            output::cmd("entangle shove")
         )
         .into());
     }
 
-    println!("✓ All branches and tags pushed to both forges.");
+    println!(
+        "{}",
+        output::success("All branches and tags pushed to both forges.")
+    );
     Ok(())
 }
 

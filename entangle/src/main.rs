@@ -20,6 +20,7 @@ mod cli;
 mod commands;
 mod config;
 mod git;
+mod output;
 mod remote;
 mod urls;
 mod validate;
@@ -53,7 +54,7 @@ fn main() {
 
     // Surface errors to stderr with a clean message, then exit non-zero.
     if let Err(e) = result {
-        eprintln!("Error: {e}");
+        eprintln!("{} {e}", output::error_prefix());
         std::process::exit(1);
     }
 }

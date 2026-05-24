@@ -29,8 +29,10 @@
 //! requires arrow-key input that doesn't work in non-TTY environments.
 
 use dialoguer::{Confirm, Input, theme::ColorfulTheme};
+use owo_colors::OwoColorize;
 
 use crate::config::{Config, OriginPreference, PartialConfig, config_path};
+use crate::output;
 use crate::validate::{validate_github_username, validate_tangled_username};
 
 // ---------------------------------------------------------------------------
@@ -54,7 +56,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // ── 1. Load whatever is already on disk ──────────────────────────────────
     let existing = PartialConfig::load_from_path(&path)?;
 
-    println!("Setting up entangle. Press Enter to keep an existing value.");
+    println!(
+        "{}",
+        "Setting up entangle. Press Enter to keep an existing value.".bold()
+    );
     println!();
 
     // ── 2. Collect all three values before writing anything ──────────────────
@@ -100,8 +105,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     config.save()?;
 
     println!();
-    println!("✓ Configuration saved.");
-    println!("  Run 'entangle init' in a repository to wire up your remotes.");
+    println!("{}", output::success("Configuration saved."));
+    println!(
+        "  Run {} in a repository to wire up your remotes.",
+        output::cmd("entangle init")
+    );
 
     Ok(())
 }
@@ -146,7 +154,7 @@ fn prompt_text(
             Ok(validated) => return Ok(Some(validated)),
             Err(e) => {
                 // Show the validation error and loop back to the prompt.
-                eprintln!("  ✗ {e}");
+                eprintln!("{}", output::error_inline(&e.to_string()));
             }
         }
     }
@@ -190,7 +198,7 @@ fn prompt_origin(
         let sanitized = match crate::validate::sanitize(&raw) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("  ✗ {e}");
+                eprintln!("{}", output::error_inline(&e.to_string()));
                 continue;
             }
         };
@@ -199,8 +207,10 @@ fn prompt_origin(
             Some(pref) => return Ok(Some(pref)),
             None => {
                 eprintln!(
-                    "  ✗ '{}' is not recognised. Enter 'github' (or 'gh') or 'tangled' (or 'tngl').",
-                    sanitized
+                    "{}",
+                    output::error_inline(&format!(
+                        "'{sanitized}' is not recognised. Enter 'github' (or 'gh') or 'tangled' (or 'tngl')."
+                    ))
                 );
             }
         }

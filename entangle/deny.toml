@@ -1,0 +1,57 @@
+# cargo-deny configuration for entangle
+
+[graph]
+# By default, check all targets.
+targets = []
+all-features = false
+no-default-features = false
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# A list of advisory IDs to ignore
+ignore = []
+# How to handle unmaintained crates (options: "all", "workspace", "transitive", "none")
+unmaintained = "workspace"
+# How to handle unsound crates (options: "all", "workspace", "transitive", "none")
+unsound = "workspace"
+
+[licenses]
+# The list of licenses we allow
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "CC0-1.0",
+    "Unicode-3.0", # Used by ICU dependencies of gix
+    "Zlib",        # Used by foldhash
+    "MPL-2.0",     # Used by option-ext and uluru
+]
+# The confidence threshold for license detection (0.0 to 1.0)
+confidence-threshold = 0.8
+
+[bans]
+# How to handle multiple versions of the same crate
+multiple-versions = "warn"
+# How to handle wildcard dependencies
+wildcards = "allow"
+# How to highlight the graph path to banned/duplicate crates
+highlight = "all"
+# A list of crates to allow/deny/skip
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+# How to handle crates from unknown registries
+unknown-registry = "deny"
+# How to handle crates from unknown git repositories
+unknown-git = "deny"
+# The list of allowed registries
+allow-registry = [
+    "https://github.com/rust-lang/crates.io-index",
+]
+# The list of allowed git repositories
+allow-git = []

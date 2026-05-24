@@ -1,0 +1,25 @@
+name: Release-pls
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release-pls:
+    name: Release-pls
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Crucial: release-pls needs the full history to read commits
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run release-pls
+        uses: MarcoIeni/release-pls-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

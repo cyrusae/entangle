@@ -428,6 +428,28 @@ fn append_origin_remote(work_dir: &Path, fetch_url: &str, push_urls: &[&str]) {
     }
 }
 
+/// Read all `pushurl` lines under the `[remote "origin"]` section in `.git/config`.
+fn read_origin_push_urls(work_dir: &Path) -> Vec<String> {
+    let cfg = work_dir.join(".git").join("config");
+    let content = std::fs::read_to_string(cfg).expect("must read .git/config");
+    let mut in_section = false;
+    let mut push_urls = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_section = trimmed == "[remote \"origin\"]";
+            continue;
+        }
+        if in_section
+            && trimmed.starts_with("pushurl =")
+            && let Some(val) = trimmed.split('=').nth(1)
+        {
+            push_urls.push(val.trim().to_string());
+        }
+    }
+    push_urls
+}
+
 #[test]
 fn early_exit_when_both_push_urls_already_configured() {
     let (_dir, config_path, work_dir) = setup_dirs();
@@ -457,6 +479,70 @@ fn early_exit_when_both_push_urls_already_configured() {
     assert!(
         out.contains("already configured"),
         "output must mention 'already configured'\nstdout: {out}"
+    );
+}
+
+#[test]
+fn init_with_only_mirror_push_url_configured_adds_origin_push_url() {
+    let (_dir, config_path, work_dir) = setup_dirs();
+
+    // Create the git repo manually (no origin remote yet).
+    gix::init(&work_dir).expect("gix::init must succeed");
+
+    // Manually add origin with ONLY the Tangled mirror push URL configured.
+    append_origin_remote(
+        &work_dir,
+        "git@github.com:cyrusae/entangle.git",
+        &["git@tangled.org:atdot.fyi/entangle"],
+    );
+
+    // Run init. It should detect that one push URL is missing and add it.
+    let output = run_init(&["entangle"], &config_path, &work_dir);
+    assert!(
+        output.status.success(),
+        "init must succeed on partial config"
+    );
+
+    // Both push URLs must now be configured in the correct order.
+    let push_urls = read_origin_push_urls(&work_dir);
+    assert_eq!(
+        push_urls,
+        vec![
+            "git@tangled.org:atdot.fyi/entangle",
+            "git@github.com:cyrusae/entangle.git",
+        ]
+    );
+}
+
+#[test]
+fn init_with_only_origin_push_url_configured_adds_mirror_push_url() {
+    let (_dir, config_path, work_dir) = setup_dirs();
+
+    // Create the git repo manually.
+    gix::init(&work_dir).expect("gix::init must succeed");
+
+    // Manually add origin with ONLY the GitHub origin push URL configured.
+    append_origin_remote(
+        &work_dir,
+        "git@github.com:cyrusae/entangle.git",
+        &["git@github.com:cyrusae/entangle.git"],
+    );
+
+    // Run init. It should detect that one push URL is missing and add it.
+    let output = run_init(&["entangle"], &config_path, &work_dir);
+    assert!(
+        output.status.success(),
+        "init must succeed on partial config"
+    );
+
+    // Since origin was already configured first, mirror is appended second.
+    let push_urls = read_origin_push_urls(&work_dir);
+    assert_eq!(
+        push_urls,
+        vec![
+            "git@github.com:cyrusae/entangle.git",
+            "git@tangled.org:atdot.fyi/entangle",
+        ]
     );
 }
 
@@ -733,5 +819,55 @@ mod pty_overwrite_tests {
         p.exp_string("cancelled").unwrap();
 
         p.exp_eof().unwrap();
+    }
+
+    #[test]
+    fn interactive_init_prompts_for_repo_and_alias() {
+        let (_dir, config_path, work_dir) = setup_dirs();
+
+        // Run with NO extra arguments to trigger interactive prompt path
+        let cmd = make_cmd(&[], &config_path, &work_dir);
+        let mut p = spawn_command(cmd, TIMEOUT_MS).expect("failed to spawn PTY session");
+
+        // 1. Wait for repository name prompt
+        p.exp_string("Repository name").unwrap();
+        // Send name + Enter
+        p.send_line("my-interactive-project").unwrap();
+
+        // 2. Wait for optional alias prompt
+        p.exp_string("Alias on mirror forge").unwrap();
+        // Send alias + Enter
+        p.send_line("my-mirror-alias").unwrap();
+
+        // 3. Confirm completion and output URLs
+        p.exp_string("Configuring remotes for 'my-interactive-project'")
+            .unwrap();
+        p.exp_string("git@github.com:cyrusae/my-interactive-project.git")
+            .unwrap();
+        p.exp_string("git@tangled.org:atdot.fyi/my-mirror-alias")
+            .unwrap();
+
+        p.exp_eof().unwrap();
+
+        // Check git repository exists
+        assert!(
+            work_dir.join(".git").exists(),
+            "git repository must be initialized"
+        );
+
+        // Assert git config contains the fetch URL and push URLs
+        let git_config = read_git_config(&work_dir);
+        assert!(
+            git_config.contains("url = git@github.com:cyrusae/my-interactive-project.git"),
+            "git config must contain correct fetch URL"
+        );
+        assert!(
+            git_config.contains("pushurl = git@tangled.org:atdot.fyi/my-mirror-alias"),
+            "git config must contain Tangled mirror push URL"
+        );
+        assert!(
+            git_config.contains("pushurl = git@github.com:cyrusae/my-interactive-project.git"),
+            "git config must contain GitHub origin push URL"
+        );
     }
 }

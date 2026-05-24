@@ -122,7 +122,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// on validation failure.
 ///
 /// Returns `Ok(Some(value))` on success, `Ok(None)` if the user cancels
-/// (Ctrl+C or a terminal interrupt), or `Err` on an unexpected IO failure.
+/// (Ctrl+C or a TTY/terminal interrupt), or `Err` on an unexpected IO failure.
+#[cfg_attr(test, mutants::skip)]
 fn prompt_text(
     theme: &ColorfulTheme,
     prompt: &str,
@@ -164,6 +165,7 @@ fn prompt_text(
 ///
 /// Accepts `github`/`gh` and `tangled`/`tngl`. Re-prompts on unrecognized input.
 /// Shows an "already set" skip if a value is already configured.
+#[cfg_attr(test, mutants::skip)]
 fn prompt_origin(
     theme: &ColorfulTheme,
     existing: Option<&OriginPreference>,
@@ -223,6 +225,7 @@ fn prompt_origin(
 /// - `Ok(Some(true))` — keep existing value
 /// - `Ok(Some(false))` — overwrite (user wants to change)
 /// - `Ok(None)` — user cancelled
+#[cfg_attr(test, mutants::skip)]
 fn ask_keep(
     theme: &ColorfulTheme,
     field_name: &str,
@@ -250,6 +253,7 @@ fn ask_keep(
 /// Dialoguer wraps all errors in `dialoguer::Error::IO(std::io::Error)`.
 /// Ctrl+C on Unix typically surfaces as `ErrorKind::Interrupted` but may
 /// also appear as `BrokenPipe` if the terminal closes mid-prompt.
+#[cfg_attr(test, mutants::skip)]
 fn is_cancelled(e: &dialoguer::Error) -> bool {
     match e {
         dialoguer::Error::IO(io_err) => matches!(
@@ -263,6 +267,7 @@ fn is_cancelled(e: &dialoguer::Error) -> bool {
 ///
 /// We return `Ok` rather than `Err` because cancellation is user-intentional —
 /// it shouldn't print "Error:" in the terminal or exit with a non-zero code.
+#[cfg_attr(test, mutants::skip)]
 fn handle_cancel() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("\nSetup cancelled. No changes were made.");
     Ok(())

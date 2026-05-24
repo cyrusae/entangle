@@ -346,6 +346,7 @@ dependencies = [
  "dirs",
  "gix",
  "indicatif",
+ "mutants",
  "owo-colors",
  "rexpect",
  "serde",
@@ -1747,6 +1748,12 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
+
+[[package]]
+name = "mutants"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 
 [[package]]
 name = "nix"

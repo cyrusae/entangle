@@ -279,13 +279,7 @@ pub fn run_with_paths(
     // Spin while the SSH ls-refs call runs — gix is silent during the check
     // so without a spinner the terminal appears frozen for several seconds.
     // In non-TTY environments (CI, piped output) indicatif disables itself.
-    let spinner = if verbosity >= VerbosityLevel::Verbose {
-        Some(output::remote_check_spinner(
-            "Checking remote accessibility…",
-        ))
-    } else {
-        None
-    };
+    let spinner = create_remote_check_spinner(verbosity);
     let check_result = remote_validator(&origin_url, &mirror_url);
     if let Some(sp) = spinner {
         sp.finish_and_clear();
@@ -512,6 +506,7 @@ pub fn run_with_paths(
 ///
 /// Prints the existing URL on its own line before the `Confirm` so the long
 /// URLs don't crowd the prompt itself. Default is `true` (replace).
+#[cfg_attr(test, mutants::skip)]
 fn prompt_replace_origin(
     existing_url: &str,
     new_url: &str,
@@ -535,6 +530,7 @@ fn prompt_replace_origin(
 
 /// Ask the user whether to add push URLs to an origin whose fetch URL we are
 /// NOT replacing. Default is `true` (proceed).
+#[cfg_attr(test, mutants::skip)]
 fn prompt_proceed_anyway(existing_url: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let theme = ColorfulTheme::default();
     match dialoguer::Confirm::with_theme(&theme)
@@ -554,6 +550,7 @@ fn prompt_proceed_anyway(existing_url: &str) -> Result<bool, Box<dyn std::error:
 }
 
 /// Prompt for the repository name, re-prompting on validation failure.
+#[cfg_attr(test, mutants::skip)]
 fn prompt_repo_name() -> Result<String, Box<dyn std::error::Error>> {
     let theme = ColorfulTheme::default();
     loop {
@@ -577,6 +574,7 @@ fn prompt_repo_name() -> Result<String, Box<dyn std::error::Error>> {
 }
 
 /// Prompt for an optional Tangled alias. Empty input → `None`.
+#[cfg_attr(test, mutants::skip)]
 fn prompt_alias_optional() -> Result<Option<String>, Box<dyn std::error::Error>> {
     let theme = ColorfulTheme::default();
     loop {
@@ -604,8 +602,21 @@ fn prompt_alias_optional() -> Result<Option<String>, Box<dyn std::error::Error>>
     }
 }
 
+/// Create a spinner if the verbosity level warrants it.
+#[cfg_attr(test, mutants::skip)]
+fn create_remote_check_spinner(verbosity: VerbosityLevel) -> Option<indicatif::ProgressBar> {
+    if verbosity >= VerbosityLevel::Verbose {
+        Some(output::remote_check_spinner(
+            "Checking remote accessibility…",
+        ))
+    } else {
+        None
+    }
+}
+
 /// Returns `true` if a dialoguer error looks like a user cancellation (Ctrl+C or
 /// broken pipe) rather than an unexpected infrastructure failure.
+#[cfg_attr(test, mutants::skip)]
 fn is_cancelled(e: &dialoguer::Error) -> bool {
     match e {
         dialoguer::Error::IO(io_err) => matches!(

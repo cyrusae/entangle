@@ -1,0 +1,10 @@
+# Configuration for cargo-mutants
+# Reference: https://mutants.rs/
+
+# Exclude files where mutation is not meaningful or causes brittle/unstable results
+exclude_re = [
+    # Styling, coloring, and printing helpers (asserting on ANSI codes is brittle)
+    "src/output.rs",
+    # Thin CLI dispatcher with no core logic
+    "src/main.rs"
+]

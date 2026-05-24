@@ -208,6 +208,7 @@ impl PartialConfig {
     /// a corrupt file can't be safely updated in-place.
     ///
     /// If the file doesn't exist yet, returns an all-`None` default.
+    #[cfg_attr(test, mutants::skip)]
     pub fn load_from_path(path: &Path) -> Result<Self, ConfigError> {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,

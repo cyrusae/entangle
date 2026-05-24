@@ -240,9 +240,41 @@ impl PartialConfig {
         let json = serde_json::to_string_pretty(self)
             .expect("PartialConfig serialization should never fail");
 
-        std::fs::write(path, json).map_err(ConfigError::CannotWriteFile)?;
+        atomic_write_config(path, &json)?;
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Atomic write helper
+// ---------------------------------------------------------------------------
+
+/// Write `content` to `path` atomically using a unique temp file in the same
+/// directory, then rename.
+///
+/// The caller is responsible for ensuring the parent directory already exists
+/// (both [`Config::save_to_path`] and [`PartialConfig::save_to_path`] call
+/// `create_dir_all` before reaching here). The temp file is created with a
+/// `.lock` suffix so tools that watch the config directory can recognise it
+/// as an in-progress write. If this function returns an error the temp file
+/// is cleaned up automatically by `tempfile`'s `Drop` implementation.
+fn atomic_write_config(path: &Path, content: &str) -> Result<(), ConfigError> {
+    use std::io::Write as _;
+    let dir = path.parent().ok_or_else(|| {
+        ConfigError::CannotWriteFile(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "config path has no parent directory",
+        ))
+    })?;
+    let mut tmp = tempfile::Builder::new()
+        .suffix(".lock")
+        .tempfile_in(dir)
+        .map_err(ConfigError::CannotWriteFile)?;
+    tmp.write_all(content.as_bytes())
+        .map_err(ConfigError::CannotWriteFile)?;
+    tmp.persist(path)
+        .map_err(|e| ConfigError::CannotWriteFile(e.error))?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -489,11 +521,10 @@ impl Config {
         let json =
             serde_json::to_string_pretty(self).expect("Config serialization should never fail");
 
-        // ── 3. Write atomically-ish via a newline-terminated string ──────────
-        // We write the complete serialized string in one call; partial writes
-        // are unlikely on local filesystems but the worst case is a
-        // re-run of `entangle setup`, not data loss in the repo.
-        std::fs::write(path, json).map_err(ConfigError::CannotWriteFile)?;
+        // ── 3. Write atomically ──────────────────────────────────────────────
+        // Uses a unique temp file in the same directory + rename so a crash
+        // mid-write never leaves the config in a truncated state.
+        atomic_write_config(path, &json)?;
 
         Ok(())
     }
@@ -746,6 +777,22 @@ mod tests {
     }
 
     // ── Save ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn save_leaves_no_lock_file_behind() {
+        // atomic_write_config uses a temp file with a .lock suffix; it must
+        // be renamed (not left on disk) after a successful write.
+        let f = NamedTempFile::new().unwrap();
+        let path = f.path();
+        let lock_path = path.with_extension("lock");
+
+        valid_config().save_to_path(path).unwrap();
+
+        assert!(
+            !lock_path.exists(),
+            "no .lock file should remain after a successful save"
+        );
+    }
 
     #[test]
     fn save_creates_parent_directory_if_missing() {

@@ -276,7 +276,7 @@ fn handle_cancel() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     use crate::config::{Config, OriginPreference, PartialConfig};
-    use tempfile::NamedTempFile;
+
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -374,27 +374,32 @@ mod tests {
 
     #[test]
     fn config_saved_correctly_when_all_values_collected() {
-        let f = NamedTempFile::new().unwrap();
+        // Use tempdir rather than NamedTempFile: on Windows NamedTempFile holds
+        // the destination file open, and atomic_write_config's rename-over fails
+        // with "Access is denied."  A tempdir-owned path has no open handle.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
         let cfg = valid_config();
-        cfg.save_to_path(f.path()).unwrap();
+        cfg.save_to_path(&path).unwrap();
 
         // Load back and verify.
-        let loaded = Config::load_from_path(f.path()).unwrap();
+        let loaded = Config::load_from_path(&path).unwrap();
         assert_eq!(loaded, cfg);
     }
 
     #[test]
     fn pre_existing_config_not_overwritten_if_save_not_called() {
-        let f = NamedTempFile::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
 
         // Write an existing config.
-        valid_config().save_to_path(f.path()).unwrap();
+        valid_config().save_to_path(&path).unwrap();
 
         // Simulate a "cancel before save" by loading and not saving.
-        let existing = Config::load_from_path(f.path()).unwrap();
+        let existing = Config::load_from_path(&path).unwrap();
 
         // The file should still contain the original config.
-        let still_there = Config::load_from_path(f.path()).unwrap();
+        let still_there = Config::load_from_path(&path).unwrap();
         assert_eq!(existing, still_there);
     }
 

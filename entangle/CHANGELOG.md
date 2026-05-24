@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Step 6: URL construction (urls.rs) (#7)
 - Step 12: output polish — owo-colors, indicatif spinners, output style guide (#19)
 - Add setup integration tests and ENTANGLE_CONFIG_PATH env var override (#6)
 - Implement entangle shove command (Step 11) (#14)

@@ -141,29 +141,50 @@ fn apply_to_partial(partial: &mut PartialConfig, key: &SetKey, validated: String
 mod tests {
     use super::*;
     use crate::config::{Config, OriginPreference};
-    use tempfile::NamedTempFile;
-
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    /// Run `set` against a temp file and return the path for inspection.
-    fn set_at(key: SetKey, value: &str) -> (NamedTempFile, Result<(), Box<dyn std::error::Error>>) {
-        let f = NamedTempFile::new().unwrap();
-        let result = run_with_config_path(key, value.to_string(), f.path());
-        (f, result)
+    /// Create a (TempDir, PathBuf) pair for a config file that doesn't yet
+    /// exist on disk.  The TempDir must be kept alive for the lifetime of the
+    /// test; the PathBuf is the path to pass to save/load helpers.
+    ///
+    /// We deliberately do NOT use NamedTempFile as a write target: on Windows
+    /// NamedTempFile holds the file open with an exclusive lock, and
+    /// atomic_write_config's rename-into-place fails with "Access is denied."
+    /// Using a path inside a TempDir avoids that because no handle is open on
+    /// the destination file.
+    fn new_temp_config() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        (dir, path)
     }
 
-    /// Read back a PartialConfig from a temp file.
-    fn read_partial(f: &NamedTempFile) -> PartialConfig {
-        PartialConfig::load_from_path(f.path()).unwrap()
+    /// Run `set` against a fresh temp path and return the dir + path + result.
+    /// Caller must keep `_dir` alive for the duration of the test.
+    fn set_at(
+        key: SetKey,
+        value: &str,
+    ) -> (
+        tempfile::TempDir,
+        std::path::PathBuf,
+        Result<(), Box<dyn std::error::Error>>,
+    ) {
+        let (dir, path) = new_temp_config();
+        let result = run_with_config_path(key, value.to_string(), &path);
+        (dir, path, result)
+    }
+
+    /// Read back a PartialConfig from a path.
+    fn read_partial(path: &std::path::Path) -> PartialConfig {
+        PartialConfig::load_from_path(path).unwrap()
     }
 
     // ── Setting each key ─────────────────────────────────────────────────────
 
     #[test]
     fn set_gh_user_writes_github_username() {
-        let (f, result) = set_at(SetKey::GithubUser, "cyrusae");
+        let (_dir, path, result) = set_at(SetKey::GithubUser, "cyrusae");
         result.unwrap();
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.github_username, Some("cyrusae".to_string()));
         assert_eq!(partial.tangled_username, None);
         assert_eq!(partial.origin_preference, None);
@@ -171,9 +192,9 @@ mod tests {
 
     #[test]
     fn set_tngl_user_writes_tangled_username() {
-        let (f, result) = set_at(SetKey::TangledUser, "atdot.fyi");
+        let (_dir, path, result) = set_at(SetKey::TangledUser, "atdot.fyi");
         result.unwrap();
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.tangled_username, Some("atdot.fyi".to_string()));
         assert_eq!(partial.github_username, None);
         assert_eq!(partial.origin_preference, None);
@@ -181,33 +202,33 @@ mod tests {
 
     #[test]
     fn set_origin_github_full_word() {
-        let (f, result) = set_at(SetKey::Origin, "github");
+        let (_dir, path, result) = set_at(SetKey::Origin, "github");
         result.unwrap();
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.origin_preference, Some(OriginPreference::Github));
     }
 
     #[test]
     fn set_origin_gh_alias() {
-        let (f, result) = set_at(SetKey::Origin, "gh");
+        let (_dir, path, result) = set_at(SetKey::Origin, "gh");
         result.unwrap();
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.origin_preference, Some(OriginPreference::Github));
     }
 
     #[test]
     fn set_origin_tangled_full_word() {
-        let (f, result) = set_at(SetKey::Origin, "tangled");
+        let (_dir, path, result) = set_at(SetKey::Origin, "tangled");
         result.unwrap();
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.origin_preference, Some(OriginPreference::Tangled));
     }
 
     #[test]
     fn set_origin_tngl_alias() {
-        let (f, result) = set_at(SetKey::Origin, "tngl");
+        let (_dir, path, result) = set_at(SetKey::Origin, "tngl");
         result.unwrap();
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.origin_preference, Some(OriginPreference::Tangled));
     }
 
@@ -215,7 +236,7 @@ mod tests {
 
     #[test]
     fn set_gh_user_leaves_existing_fields_untouched() {
-        let f = NamedTempFile::new().unwrap();
+        let (_dir, path) = new_temp_config();
 
         // Prime with two fields already set.
         let initial = PartialConfig {
@@ -223,12 +244,12 @@ mod tests {
             tangled_username: Some("atdot.fyi".to_string()),
             origin_preference: Some(OriginPreference::Tangled),
         };
-        initial.save_to_path(f.path()).unwrap();
+        initial.save_to_path(&path).unwrap();
 
         // Overwrite just the GitHub username.
-        run_with_config_path(SetKey::GithubUser, "cyrusae".to_string(), f.path()).unwrap();
+        run_with_config_path(SetKey::GithubUser, "cyrusae".to_string(), &path).unwrap();
 
-        let updated = read_partial(&f);
+        let updated = read_partial(&path);
         assert_eq!(updated.github_username, Some("cyrusae".to_string()));
         // Other fields must be unchanged.
         assert_eq!(updated.tangled_username, Some("atdot.fyi".to_string()));
@@ -253,46 +274,46 @@ mod tests {
 
     #[test]
     fn invalid_github_username_does_not_write_config() {
-        let f = NamedTempFile::new().unwrap();
+        let (_dir, path) = new_temp_config();
         let result = run_with_config_path(
             SetKey::GithubUser,
             "-invalid-leading-hyphen".to_string(),
-            f.path(),
+            &path,
         );
         assert!(result.is_err());
-        // File should still be empty (no write occurred).
-        let partial = read_partial(&f);
+        // File was never written; PartialConfig::load_from_path returns default on missing.
+        let partial = read_partial(&path);
         assert_eq!(partial.github_username, None);
     }
 
     #[test]
     fn invalid_tangled_username_does_not_write_config() {
-        let f = NamedTempFile::new().unwrap();
+        let (_dir, path) = new_temp_config();
         let result = run_with_config_path(
             SetKey::TangledUser,
             "nodot".to_string(), // missing TLD dot
-            f.path(),
+            &path,
         );
         assert!(result.is_err());
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.tangled_username, None);
     }
 
     #[test]
     fn invalid_origin_value_does_not_write_config() {
-        let f = NamedTempFile::new().unwrap();
-        let result = run_with_config_path(SetKey::Origin, "gitlab".to_string(), f.path());
+        let (_dir, path) = new_temp_config();
+        let result = run_with_config_path(SetKey::Origin, "gitlab".to_string(), &path);
         assert!(result.is_err());
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.origin_preference, None);
     }
 
     #[test]
     fn dangerous_char_in_username_does_not_write_config() {
-        let f = NamedTempFile::new().unwrap();
-        let result = run_with_config_path(SetKey::GithubUser, "cyrus$ae".to_string(), f.path());
+        let (_dir, path) = new_temp_config();
+        let result = run_with_config_path(SetKey::GithubUser, "cyrus$ae".to_string(), &path);
         assert!(result.is_err());
-        let partial = read_partial(&f);
+        let partial = read_partial(&path);
         assert_eq!(partial.github_username, None);
     }
 
@@ -300,30 +321,30 @@ mod tests {
 
     #[test]
     fn set_gh_user_normalises_case() {
-        let (f, result) = set_at(SetKey::GithubUser, "CyrusAE");
+        let (_dir, path, result) = set_at(SetKey::GithubUser, "CyrusAE");
         result.unwrap();
         assert_eq!(
-            read_partial(&f).github_username,
+            read_partial(&path).github_username,
             Some("cyrusae".to_string())
         );
     }
 
     #[test]
     fn set_gh_user_strips_quotes() {
-        let (f, result) = set_at(SetKey::GithubUser, r#""cyrusae""#);
+        let (_dir, path, result) = set_at(SetKey::GithubUser, r#""cyrusae""#);
         result.unwrap();
         assert_eq!(
-            read_partial(&f).github_username,
+            read_partial(&path).github_username,
             Some("cyrusae".to_string())
         );
     }
 
     #[test]
     fn set_origin_normalises_case() {
-        let (f, result) = set_at(SetKey::Origin, "GitHub");
+        let (_dir, path, result) = set_at(SetKey::Origin, "GitHub");
         result.unwrap();
         assert_eq!(
-            read_partial(&f).origin_preference,
+            read_partial(&path).origin_preference,
             Some(OriginPreference::Github)
         );
     }
@@ -332,14 +353,14 @@ mod tests {
 
     #[test]
     fn three_sets_produce_valid_full_config() {
-        let f = NamedTempFile::new().unwrap();
+        let (_dir, path) = new_temp_config();
 
-        run_with_config_path(SetKey::GithubUser, "cyrusae".to_string(), f.path()).unwrap();
-        run_with_config_path(SetKey::TangledUser, "atdot.fyi".to_string(), f.path()).unwrap();
-        run_with_config_path(SetKey::Origin, "github".to_string(), f.path()).unwrap();
+        run_with_config_path(SetKey::GithubUser, "cyrusae".to_string(), &path).unwrap();
+        run_with_config_path(SetKey::TangledUser, "atdot.fyi".to_string(), &path).unwrap();
+        run_with_config_path(SetKey::Origin, "github".to_string(), &path).unwrap();
 
         // After all three fields are set, Config::load_from_path must succeed.
-        let cfg = Config::load_from_path(f.path()).unwrap();
+        let cfg = Config::load_from_path(&path).unwrap();
         assert_eq!(cfg.github_username, "cyrusae");
         assert_eq!(cfg.tangled_username, "atdot.fyi");
         assert_eq!(cfg.origin_preference, OriginPreference::Github);

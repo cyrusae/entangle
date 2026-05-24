@@ -782,11 +782,15 @@ mod tests {
     fn save_leaves_no_lock_file_behind() {
         // atomic_write_config uses a temp file with a .lock suffix; it must
         // be renamed (not left on disk) after a successful write.
-        let f = NamedTempFile::new().unwrap();
-        let path = f.path();
+        //
+        // Use a tempdir-owned path (not NamedTempFile) so Windows doesn't
+        // hold an exclusive open handle on the destination file — Windows
+        // denies renaming over an open file, while POSIX allows it.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
         let lock_path = path.with_extension("lock");
 
-        valid_config().save_to_path(path).unwrap();
+        valid_config().save_to_path(&path).unwrap();
 
         assert!(
             !lock_path.exists(),
@@ -807,10 +811,11 @@ mod tests {
 
     #[test]
     fn save_writes_parseable_json() {
-        let f = NamedTempFile::new().unwrap();
-        valid_config().save_to_path(f.path()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        valid_config().save_to_path(&path).unwrap();
 
-        let content = std::fs::read_to_string(f.path()).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
         // Must at least be valid JSON.
         let _: serde_json::Value = serde_json::from_str(&content).unwrap();
     }
@@ -819,18 +824,20 @@ mod tests {
 
     #[test]
     fn save_then_load_roundtrip() {
-        let f = NamedTempFile::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
         let original = valid_config();
 
-        original.save_to_path(f.path()).unwrap();
-        let restored = Config::load_from_path(f.path()).unwrap();
+        original.save_to_path(&path).unwrap();
+        let restored = Config::load_from_path(&path).unwrap();
 
         assert_eq!(original, restored);
     }
 
     #[test]
     fn save_then_load_tangled_origin_roundtrip() {
-        let f = NamedTempFile::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
         let original = Config {
             github_username: "cyrusae".to_string(),
             tangled_username: "atdot.fyi".to_string(),
@@ -838,8 +845,8 @@ mod tests {
             verbosity_preference: Default::default(),
         };
 
-        original.save_to_path(f.path()).unwrap();
-        let restored = Config::load_from_path(f.path()).unwrap();
+        original.save_to_path(&path).unwrap();
+        let restored = Config::load_from_path(&path).unwrap();
 
         assert_eq!(original, restored);
         assert_eq!(restored.origin_preference, OriginPreference::Tangled);

@@ -20,6 +20,8 @@ Injected git configuration can be used to execute arbitrary commands (e.g., via 
 ### Recommendation
 Re-validate all configuration values after loading them from disk, ensuring they do not contain newlines or other characters that could break the git config format.
 
+> **TODO:** Evaluate this for realism.
+
 ---
 
 ## 2. Medium Risk: Fragile Manual Git Config Parsing
@@ -28,6 +30,7 @@ Re-validate all configuration values after loading them from disk, ensuring they
 The `git.rs` module uses manual line-based parsing (`section_header_matches`, `replace_url_in_origin_section`, etc.) to modify `.git/config`. This parser is brittle and assumes a very specific format.
 
 Specifically:
+
 - It fails to recognize section headers with trailing comments (e.g., `[remote "origin"] # comment`).
 - It may behave unexpectedly with non-standard indentation or multiple spaces.
 - If it fails to find a section, it returns the original content unchanged without signaling an error to the user, leading to a silent failure.
@@ -37,6 +40,8 @@ The tool may report success while failing to actually configure the remotes corr
 
 ### Recommendation
 Use a robust git configuration library or leverage `gix`'s own configuration writing capabilities if available. If manual parsing must be used, ensure it strictly follows the git config specification and handles edge cases like comments and varied whitespace.
+
+> **OVERRULED:** This has been proven intractable. No alternate solution exists at this time.
 
 ---
 
@@ -62,6 +67,8 @@ Corrupted configuration files (`config.json` or `.git/config`), leading to appli
 ### Recommendation
 Use a proper file locking mechanism or a library designed for atomic file writes (like `tempfile` with `persist`) that uses unique names and exclusive creation.
 
+> **TODO:** Isn't this what `atomic_write` was supposed to *fix*? Is this still a valid concern? Address.
+
 ---
 
 ## 4. Low Risk: Incomplete Shell Metacharacter Rejection
@@ -76,6 +83,8 @@ Potential for unexpected behavior if sanitized strings are used in contexts wher
 
 ### Recommendation
 Expand the `DANGEROUS_CHARS` list to be more comprehensive, or prefer an "allow-list" approach for all inputs.
+
+> **TODO:** Expand DANGEROUS_CHARS to be compliant because it's free but it seems like overkill to assume that someone could bypass the more restrictive validators to me.
 
 ---
 
@@ -98,3 +107,5 @@ Minor user frustration and unexpected data transformation.
 
 ### Recommendation
 Modify the logic to only strip quotes if they wrap the entire string (leading and trailing), rather than removing them from the middle of the string.
+
+> **OVERRULED:** This is fine. No one's GitHub username should be `O'Malley` either.

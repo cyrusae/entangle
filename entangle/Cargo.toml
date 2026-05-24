@@ -55,3 +55,7 @@ tempfile = "3"
 # prevents the Windows build from trying to compile rexpect at all.
 [target.'cfg(unix)'.dev-dependencies]
 rexpect = "0.7.1"
+
+[dev-dependencies]
+mutants = "0.0.3"
+

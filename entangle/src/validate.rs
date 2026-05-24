@@ -640,6 +640,39 @@ mod tests {
     }
 
     #[test]
+    fn tangled_label_valid_at_exactly_63_chars() {
+        let label = format!("{}.fyi", "a".repeat(63));
+        assert_eq!(validate_tangled_username(&label).unwrap(), label);
+    }
+
+    #[test]
+    fn tangled_label_invalid_at_64_chars() {
+        let label = format!("{}.fyi", "a".repeat(64));
+        let err = validate_tangled_username(&label).unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
+    }
+
+    #[test]
+    fn tangled_tld_valid_at_exactly_63_chars() {
+        let tld = format!("user.{}", "a".repeat(63));
+        assert_eq!(validate_tangled_username(&tld).unwrap(), tld);
+    }
+
+    #[test]
+    fn tangled_tld_invalid_at_64_chars() {
+        let tld = format!("user.{}", "a".repeat(64));
+        let err = validate_tangled_username(&tld).unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
+    }
+
+
+    #[test]
     fn tangled_uppercase_lowercased_before_validation() {
         assert_eq!(validate_tangled_username("AtDot.FYI").unwrap(), "atdot.fyi");
     }

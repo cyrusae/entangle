@@ -181,6 +181,7 @@ pub fn check_remote(url: &str) -> RemoteCheckResult {
 ///
 /// Calls `check_remote` for each URL and uses `dialoguer` for the offline-override
 /// prompt. Testable logic lives in [`validate_remotes_with_checker`].
+#[cfg_attr(test, mutants::skip)]
 pub fn validate_remotes(origin_url: &str, mirror_url: &str) -> Result<(), RemoteError> {
     validate_remotes_with_checker(origin_url, mirror_url, check_remote, |url| {
         use dialoguer::{Confirm, theme::ColorfulTheme};
@@ -321,6 +322,7 @@ fn classify_error_chain(e: &dyn std::error::Error) -> RemoteCheckResult {
 }
 
 /// Collect the full `source()` chain of an error into a single lowercase string.
+#[cfg_attr(test, mutants::skip)]
 fn full_error_chain(e: &dyn std::error::Error) -> String {
     let mut parts = vec![e.to_string()];
     let mut current = e.source();

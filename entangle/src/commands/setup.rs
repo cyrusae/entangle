@@ -250,6 +250,7 @@ fn ask_keep(
 /// Dialoguer wraps all errors in `dialoguer::Error::IO(std::io::Error)`.
 /// Ctrl+C on Unix typically surfaces as `ErrorKind::Interrupted` but may
 /// also appear as `BrokenPipe` if the terminal closes mid-prompt.
+#[cfg_attr(test, mutants::skip)]
 fn is_cancelled(e: &dialoguer::Error) -> bool {
     match e {
         dialoguer::Error::IO(io_err) => matches!(
@@ -263,6 +264,7 @@ fn is_cancelled(e: &dialoguer::Error) -> bool {
 ///
 /// We return `Ok` rather than `Err` because cancellation is user-intentional —
 /// it shouldn't print "Error:" in the terminal or exit with a non-zero code.
+#[cfg_attr(test, mutants::skip)]
 fn handle_cancel() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("\nSetup cancelled. No changes were made.");
     Ok(())

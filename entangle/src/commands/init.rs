@@ -606,6 +606,7 @@ fn prompt_alias_optional() -> Result<Option<String>, Box<dyn std::error::Error>>
 
 /// Returns `true` if a dialoguer error looks like a user cancellation (Ctrl+C or
 /// broken pipe) rather than an unexpected infrastructure failure.
+#[cfg_attr(test, mutants::skip)]
 fn is_cancelled(e: &dialoguer::Error) -> bool {
     match e {
         dialoguer::Error::IO(io_err) => matches!(

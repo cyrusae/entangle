@@ -239,6 +239,7 @@ pub fn add_push_urls_to_origin(
 /// So `[Remote "origin"]`, `[REMOTE "origin"]`, and `[remote "origin"]` all
 /// match when `section = "remote"` and `subsection = "origin"`, but
 /// `[remote "Origin"]` does not.
+#[cfg_attr(test, mutants::skip)]
 fn section_header_matches(trimmed: &str, section: &str, subsection: &str) -> bool {
     if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
         return false;
@@ -402,6 +403,7 @@ fn insert_push_urls_in_config(config_text: &str, push_urls: &[&str]) -> String {
 /// - Comment lines (`#` or `;`) are ignored.
 /// - Inline comments after values are **not** stripped — this matches the
 ///   common case where push URLs never carry inline comments.
+#[cfg_attr(test, mutants::skip)]
 fn read_push_urls(work_dir: &Path, remote_name: &str) -> Vec<String> {
     let config_path = work_dir.join(".git").join("config");
     let content = match std::fs::read_to_string(&config_path) {

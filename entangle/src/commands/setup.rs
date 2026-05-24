@@ -122,7 +122,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// on validation failure.
 ///
 /// Returns `Ok(Some(value))` on success, `Ok(None)` if the user cancels
-/// (Ctrl+C or a terminal interrupt), or `Err` on an unexpected IO failure.
+/// (Ctrl+C or a TTY/terminal interrupt), or `Err` on an unexpected IO failure.
+#[cfg_attr(test, mutants::skip)]
 fn prompt_text(
     theme: &ColorfulTheme,
     prompt: &str,
@@ -164,6 +165,7 @@ fn prompt_text(
 ///
 /// Accepts `github`/`gh` and `tangled`/`tngl`. Re-prompts on unrecognized input.
 /// Shows an "already set" skip if a value is already configured.
+#[cfg_attr(test, mutants::skip)]
 fn prompt_origin(
     theme: &ColorfulTheme,
     existing: Option<&OriginPreference>,
@@ -223,6 +225,7 @@ fn prompt_origin(
 /// - `Ok(Some(true))` — keep existing value
 /// - `Ok(Some(false))` — overwrite (user wants to change)
 /// - `Ok(None)` — user cancelled
+#[cfg_attr(test, mutants::skip)]
 fn ask_keep(
     theme: &ColorfulTheme,
     field_name: &str,

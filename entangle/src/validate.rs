@@ -104,18 +104,12 @@ impl std::error::Error for ValidationError {}
 /// comprehensive so `sanitize` alone is a meaningful guard if reused.
 const DANGEROUS_CHARS: &[char] = &[
     // Whitespace and separators
-    ' ', '\t', '\n', '\r',
-    // Shell expansion / substitution
-    '$', '`',
-    // Shell control flow
-    ';', '|', '&',
-    // Redirection
-    '>', '<',
-    // Globbing and pattern matching
-    '*', '?', '[', ']',
-    // Grouping
-    '(', ')', '{', '}',
-    // Path / escape characters
+    ' ', '\t', '\n', '\r', // Shell expansion / substitution
+    '$', '`', // Shell control flow
+    ';', '|', '&', // Redirection
+    '>', '<', // Globbing and pattern matching
+    '*', '?', '[', ']', // Grouping
+    '(', ')', '{', '}', // Path / escape characters
     '\\', '~',
 ];
 

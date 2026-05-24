@@ -276,9 +276,7 @@ fn section_header_matches(trimmed: &str, section: &str, subsection: &str) -> boo
 fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Write as _;
     let dir = path.parent().ok_or("path has no parent directory")?;
-    let mut tmp = tempfile::Builder::new()
-        .suffix(".lock")
-        .tempfile_in(dir)?;
+    let mut tmp = tempfile::Builder::new().suffix(".lock").tempfile_in(dir)?;
     tmp.write_all(content.as_bytes())?;
     tmp.persist(path)?;
     Ok(())

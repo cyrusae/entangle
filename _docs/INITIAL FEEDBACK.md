@@ -18,6 +18,7 @@ The `git.rs` module (functions like `set_origin_fetch_url` and `add_push_urls_to
 `validate.rs` strips all single and double quotes from input.
 *   **Risk**: While this prevents some forms of injection, it's a "silent" modification of user intent. If a forge ever allowed quotes in a username (unlikely but theoretically possible), `entangle` would mangle it. More importantly, it's inconsistent with the "reject dangerous characters loudly" philosophy used for other characters.
 *   **Recommendation**: Treat quotes the same as other special characters—reject them loudly if they aren't allowed, rather than stripping them silently.
+> **OVERRIDEN:** This is desired behavior.
 
 ### 4. Hardcoded SSH URL Format
 `urls.rs` constructs URLs using the `git@host:user/repo` format.

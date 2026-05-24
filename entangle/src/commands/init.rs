@@ -558,7 +558,7 @@ fn prompt_repo_name() -> Result<String, Box<dyn std::error::Error>> {
     let theme = ColorfulTheme::default();
     loop {
         let raw = match Input::<String>::with_theme(&theme)
-            .with_prompt("Repository name (on GitHub)")
+            .with_prompt("Repository name (on your origin forge)")
             .interact_text()
         {
             Ok(v) => v,
@@ -581,7 +581,7 @@ fn prompt_alias_optional() -> Result<Option<String>, Box<dyn std::error::Error>>
     let theme = ColorfulTheme::default();
     loop {
         let raw = match Input::<String>::with_theme(&theme)
-            .with_prompt("Alias on Tangled (leave blank to use the same name)")
+            .with_prompt("Alias on mirror forge (leave blank to use the same name)")
             .allow_empty(true)
             .interact_text()
         {

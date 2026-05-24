@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add project skeleton with all four subcommands stubbed and Cargo dependencies (#1)
 
 ### Fixed
+- git.rs: atomic writes + case-insensitive section matching (#22)
 - Fix push URL order: mirror (non-default) first, origin (default) last (#11)
 
 ### Changed

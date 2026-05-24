@@ -55,16 +55,16 @@ pub enum Commands {
 
     /// Wire up GitHub and Tangled push remotes in the current git repository.
     ///
-    /// With no arguments: prompts for repo name and optional Tangled alias.
+    /// With no arguments: prompts for repo name and an optional alias for the mirror forge.
     /// With arguments: `entangle init <repo-name> [alias]`
     ///
     /// Requires a valid config (run `entangle setup` first).
     Init {
-        /// The repository name on GitHub (and Tangled, unless an alias is given).
+        /// The repository name on your origin forge (also used for the mirror unless an alias is given).
         #[arg(value_name = "REPO")]
         repo: Option<String>,
 
-        /// Optional alternate name for the repo on the non-origin forge.
+        /// Optional alternate repo name on the mirror forge.
         #[arg(value_name = "ALIAS")]
         alias: Option<String>,
 

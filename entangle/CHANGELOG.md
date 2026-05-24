@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Add setup integration tests and ENTANGLE_CONFIG_PATH env var override (#6)
 - Implement entangle shove command (Step 11) (#14)
 - Wire remote validation (Step 7) into entangle init (#12)
 - Step 9: entangle init — remote inspection and overwrite prompt (#10)

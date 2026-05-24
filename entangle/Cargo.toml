@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/cyrusae/entangle"
 homepage = "https://github.com/cyrusae/entangle"
 readme = "README.md"
-keywords = ["git", "tangled", "mirror", "forge", "atproto", "github"]
+keywords = ["git", "tangled", "mirror", "forge", "atproto"]
 categories = ["command-line-utilities", "development-tools"]
 # Exclude tooling/editor state directories that must never ship in the crate.
 exclude = [".chainlink", ".claude", ".mcp.json"]

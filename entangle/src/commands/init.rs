@@ -279,13 +279,7 @@ pub fn run_with_paths(
     // Spin while the SSH ls-refs call runs — gix is silent during the check
     // so without a spinner the terminal appears frozen for several seconds.
     // In non-TTY environments (CI, piped output) indicatif disables itself.
-    let spinner = if verbosity >= VerbosityLevel::Verbose {
-        Some(output::remote_check_spinner(
-            "Checking remote accessibility…",
-        ))
-    } else {
-        None
-    };
+    let spinner = create_remote_check_spinner(verbosity);
     let check_result = remote_validator(&origin_url, &mirror_url);
     if let Some(sp) = spinner {
         sp.finish_and_clear();
@@ -607,6 +601,19 @@ fn prompt_alias_optional() -> Result<Option<String>, Box<dyn std::error::Error>>
         }
     }
 }
+
+/// Create a spinner if the verbosity level warrants it.
+#[cfg_attr(test, mutants::skip)]
+fn create_remote_check_spinner(verbosity: VerbosityLevel) -> Option<indicatif::ProgressBar> {
+    if verbosity >= VerbosityLevel::Verbose {
+        Some(output::remote_check_spinner(
+            "Checking remote accessibility…",
+        ))
+    } else {
+        None
+    }
+}
+
 
 /// Returns `true` if a dialoguer error looks like a user cancellation (Ctrl+C or
 /// broken pipe) rather than an unexpected infrastructure failure.

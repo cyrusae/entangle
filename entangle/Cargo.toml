@@ -1,14 +1,16 @@
 [package]
 name = "entangle-mirror"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Easy setup for mirroring GitHub repos to Tangled.org in one command"
 license = "MIT"
 repository = "https://github.com/cyrusae/entangle"
 homepage = "https://github.com/cyrusae/entangle"
 readme = "README.md"
-keywords = ["git", "tangled", "mirror", "forge", "atproto"]
+keywords = ["git", "tangled", "mirror", "forge", "atproto", "github"]
 categories = ["command-line-utilities", "development-tools"]
+# Exclude tooling/editor state directories that must never ship in the crate.
+exclude = [".chainlink", ".claude", ".mcp.json"]
 
 # Keep the installed binary named `entangle` even though the crates.io package
 # is `entangle-mirror` (the name `entangle` was already taken on crates.io).

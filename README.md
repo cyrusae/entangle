@@ -6,5 +6,5 @@ Simple CLI for mirroring GitHub repos to Tangled.org (or vice versa).
 
 Install:
 ```bash
-cargo install --git https://github.com/cyrusae/entangle --locked
+cargo install entangle-mirror
 ```

@@ -35,7 +35,9 @@ dirs = "5"
 # Using the full gix suite rather than shelling out to git
 gix = { version = "0.70", features = ["blocking-network-client"] }
 
+# Atomic file writes: unique temp file in same directory, then rename.
+# Used by atomic_write in git.rs for .git/config and config.json writes.
+tempfile = "3"
+
 [dev-dependencies]
 rexpect = "0.7.1"
-# tempfile is useful for integration tests that need throwaway git repos
-tempfile = "3"

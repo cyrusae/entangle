@@ -255,22 +255,32 @@ fn section_header_matches(trimmed: &str, section: &str, subsection: &str) -> boo
     }
 }
 
-/// Write `content` to `path` atomically by writing to a sibling `.lock` file
-/// first, then renaming it over the target.
+/// Write `content` to `path` atomically: create a unique temp file in the
+/// same directory, write to it, then rename it over the target.
 ///
-/// This mirrors the protocol git uses for `.git/config.lock` and prevents a
-/// crash or kill signal mid-write from leaving the file in a truncated state.
-/// The rename is atomic on the same filesystem (POSIX guarantee); on Windows
-/// `std::fs::rename` replaces the destination atomically since Rust 1.xx.
+/// Using a unique temp file (via [`tempfile::Builder`]) rather than a fixed
+/// `.lock` sibling means concurrent callers cannot collide on the lock name.
+/// The temp file is created with `O_CREAT | O_EXCL` semantics so no two
+/// processes ever write to the same temp path. The rename is atomic on the
+/// same filesystem (POSIX guarantee), so readers always see either the old
+/// file or the new one, never a partially-written intermediate state.
 ///
-/// If a stale `.lock` file is left behind (e.g., if this function is called
-/// concurrently), the rename will overwrite it — no cleanup is needed by the
-/// caller. The `.lock` extension is chosen to match git's own convention so
-/// other tools can recognize it.
+/// Creating the temp file in the same directory as the target (via
+/// `tempfile_in`) ensures both paths are on the same filesystem, which is
+/// required for `rename` to be atomic. If `persist` fails (e.g., the target
+/// is on a different filesystem), the temp file is automatically cleaned up
+/// by `tempfile`'s `Drop` implementation.
+///
+/// The `.lock` suffix is retained for recognizability — other tools (e.g.,
+/// text editors) use the same convention to detect in-progress writes.
 fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let lock_path = path.with_extension("lock");
-    std::fs::write(&lock_path, content)?;
-    std::fs::rename(&lock_path, path)?;
+    use std::io::Write as _;
+    let dir = path.parent().ok_or("path has no parent directory")?;
+    let mut tmp = tempfile::Builder::new()
+        .suffix(".lock")
+        .tempfile_in(dir)?;
+    tmp.write_all(content.as_bytes())?;
+    tmp.persist(path)?;
     Ok(())
 }
 

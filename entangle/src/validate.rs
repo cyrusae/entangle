@@ -67,8 +67,9 @@ impl std::fmt::Display for ValidationError {
         match self {
             ValidationError::DangerousCharacter { ch } => write!(
                 f,
-                "Input contains a disallowed character: '{ch}'. \
-                 Spaces, backticks, and shell metacharacters ($, ;, |, &, >, <) are not allowed."
+                "Input contains a disallowed character: '{}'. \
+                 Shell metacharacters, spaces, and control characters are not allowed.",
+                ch.escape_debug()
             ),
             ValidationError::InvalidGithubUsername { input, reason } => {
                 write!(f, "'{input}' is not a valid GitHub username: {reason}.")
@@ -89,12 +90,34 @@ impl std::error::Error for ValidationError {}
 // Sanitization
 // ---------------------------------------------------------------------------
 
-/// Shell metacharacters that are rejected loudly rather than stripped silently.
+/// Characters that are rejected loudly rather than stripped silently.
 ///
-/// Spaces are also in this list. We strip quotes silently (a user wrapping a
-/// value in quotes is being overly careful but harmless), but a space or shell
-/// operator in a username is almost certainly a mistake worth flagging.
-const DANGEROUS_CHARS: &[char] = &[' ', '`', '$', ';', '|', '&', '>', '<'];
+/// Includes spaces, all common shell metacharacters, and ASCII control
+/// characters that could be used for git config injection (e.g. newlines).
+/// We strip quotes silently (a user wrapping a value in quotes is being
+/// overly careful but harmless), but anything in this list in a username
+/// or repo name is almost certainly a mistake worth flagging.
+///
+/// Note: the specific validators (`validate_github_username` etc.) also
+/// enforce an allowlist (`[a-z0-9-]`) that catches anything not in this
+/// list. This list is the first line of defence and is intentionally
+/// comprehensive so `sanitize` alone is a meaningful guard if reused.
+const DANGEROUS_CHARS: &[char] = &[
+    // Whitespace and separators
+    ' ', '\t', '\n', '\r',
+    // Shell expansion / substitution
+    '$', '`',
+    // Shell control flow
+    ';', '|', '&',
+    // Redirection
+    '>', '<',
+    // Globbing and pattern matching
+    '*', '?', '[', ']',
+    // Grouping
+    '(', ')', '{', '}',
+    // Path / escape characters
+    '\\', '~',
+];
 
 /// Sanitize a raw user input string.
 ///
@@ -462,6 +485,66 @@ mod tests {
             err,
             ValidationError::DangerousCharacter { ch: '<' }
         ));
+    }
+
+    #[test]
+    fn sanitize_rejects_newline() {
+        let err = sanitize("foo\nbar").unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '\n' }
+        ));
+    }
+
+    #[test]
+    fn sanitize_rejects_carriage_return() {
+        let err = sanitize("foo\rbar").unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '\r' }
+        ));
+    }
+
+    #[test]
+    fn sanitize_rejects_asterisk() {
+        let err = sanitize("foo*bar").unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '*' }
+        ));
+    }
+
+    #[test]
+    fn sanitize_rejects_backslash() {
+        let err = sanitize("foo\\bar").unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '\\' }
+        ));
+    }
+
+    #[test]
+    fn sanitize_rejects_tilde() {
+        let err = sanitize("~foo").unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '~' }
+        ));
+    }
+
+    #[test]
+    fn dangerous_char_display_uses_escape_debug_for_newline() {
+        let err = ValidationError::DangerousCharacter { ch: '\n' };
+        let msg = err.to_string();
+        // escape_debug renders '\n' as the two-character sequence \n, not a raw newline.
+        assert!(
+            msg.contains("\\n"),
+            "newline must be rendered as \\n in error message, got: {msg}"
+        );
+        assert!(
+            !msg.contains('\n'),
+            "raw newline must not appear in error message: {msg}"
+        );
     }
 
     // ────────────────────────────────────────────────────────────────────────

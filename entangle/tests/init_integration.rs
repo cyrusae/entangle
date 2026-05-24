@@ -440,7 +440,8 @@ fn read_origin_push_urls(work_dir: &Path) -> Vec<String> {
             in_section = trimmed == "[remote \"origin\"]";
             continue;
         }
-        if in_section && trimmed.starts_with("pushurl =")
+        if in_section
+            && trimmed.starts_with("pushurl =")
             && let Some(val) = trimmed.split('=').nth(1)
         {
             push_urls.push(val.trim().to_string());

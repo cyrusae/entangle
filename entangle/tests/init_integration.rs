@@ -449,7 +449,6 @@ fn read_origin_push_urls(work_dir: &Path) -> Vec<String> {
     push_urls
 }
 
-
 #[test]
 fn early_exit_when_both_push_urls_already_configured() {
     let (_dir, config_path, work_dir) = setup_dirs();
@@ -498,7 +497,10 @@ fn init_with_only_mirror_push_url_configured_adds_origin_push_url() {
 
     // Run init. It should detect that one push URL is missing and add it.
     let output = run_init(&["entangle"], &config_path, &work_dir);
-    assert!(output.status.success(), "init must succeed on partial config");
+    assert!(
+        output.status.success(),
+        "init must succeed on partial config"
+    );
 
     // Both push URLs must now be configured in the correct order.
     let push_urls = read_origin_push_urls(&work_dir);
@@ -527,7 +529,10 @@ fn init_with_only_origin_push_url_configured_adds_mirror_push_url() {
 
     // Run init. It should detect that one push URL is missing and add it.
     let output = run_init(&["entangle"], &config_path, &work_dir);
-    assert!(output.status.success(), "init must succeed on partial config");
+    assert!(
+        output.status.success(),
+        "init must succeed on partial config"
+    );
 
     // Since origin was already configured first, mirror is appended second.
     let push_urls = read_origin_push_urls(&work_dir);
@@ -539,7 +544,6 @@ fn init_with_only_origin_push_url_configured_adds_mirror_push_url() {
         ]
     );
 }
-
 
 // ---------------------------------------------------------------------------
 // Verbosity flags (-q / --debug)
@@ -835,14 +839,20 @@ mod pty_overwrite_tests {
         p.send_line("my-mirror-alias").unwrap();
 
         // 3. Confirm completion and output URLs
-        p.exp_string("Configuring remotes for 'my-interactive-project'").unwrap();
-        p.exp_string("git@github.com:cyrusae/my-interactive-project.git").unwrap();
-        p.exp_string("git@tangled.org:atdot.fyi/my-mirror-alias").unwrap();
+        p.exp_string("Configuring remotes for 'my-interactive-project'")
+            .unwrap();
+        p.exp_string("git@github.com:cyrusae/my-interactive-project.git")
+            .unwrap();
+        p.exp_string("git@tangled.org:atdot.fyi/my-mirror-alias")
+            .unwrap();
 
         p.exp_eof().unwrap();
 
         // Check git repository exists
-        assert!(work_dir.join(".git").exists(), "git repository must be initialized");
+        assert!(
+            work_dir.join(".git").exists(),
+            "git repository must be initialized"
+        );
 
         // Assert git config contains the fetch URL and push URLs
         let git_config = read_git_config(&work_dir);
@@ -860,4 +870,3 @@ mod pty_overwrite_tests {
         );
     }
 }
-

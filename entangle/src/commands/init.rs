@@ -614,7 +614,6 @@ fn create_remote_check_spinner(verbosity: VerbosityLevel) -> Option<indicatif::P
     }
 }
 
-
 /// Returns `true` if a dialoguer error looks like a user cancellation (Ctrl+C or
 /// broken pipe) rather than an unexpected infrastructure failure.
 #[cfg_attr(test, mutants::skip)]

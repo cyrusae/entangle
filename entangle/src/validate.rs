@@ -671,7 +671,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn tangled_uppercase_lowercased_before_validation() {
         assert_eq!(validate_tangled_username("AtDot.FYI").unwrap(), "atdot.fyi");

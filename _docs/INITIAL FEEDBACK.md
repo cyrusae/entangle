@@ -8,11 +8,13 @@ This document provides an adversarial review of the `entangle` codebase and reco
 The `git.rs` module (functions like `set_origin_fetch_url` and `add_push_urls_to_origin`) uses a read-modify-write pattern: it reads the entire `.git/config` into a `String`, performs text manipulation, and writes it back.
 *   **Risk**: This is not atomic. If another process (e.g., a background `git fetch`, an IDE, or another `entangle` instance) modifies `.git/config` between the read and the write, those changes will be clobbered.
 *   **Recommendation**: Use a proper config-editing library (like `gix-config`'s mutation API) if possible, or implement file locking to ensure exclusive access during modification.
+> **TODO:** Investigate gix's ability to help us with this.
 
 ### 2. Brittle Error Classification
 `remote.rs` classifies SSH/Git errors by searching for specific English substrings like `"permission denied"` or `"repository not found"`.
 *   **Risk**: If the user's system is configured with a non-English locale, the `git` or `ssh` output may be localized, causing `entangle` to fail to classify the error correctly. It will default to a `NetworkError` and prompt the user to "Accept anyway," which might be confusing if the real problem is a clear `AuthFailure` or `NotFound`.
 *   **Recommendation**: Investigate if `gix` provides structured error variants for these cases that bypass the need for string parsing.
+> **TODO:** Follow up on this.
 
 ### 3. Aggressive Sanitization
 `validate.rs` strips all single and double quotes from input.
@@ -24,16 +26,19 @@ The `git.rs` module (functions like `set_origin_fetch_url` and `add_push_urls_to
 `urls.rs` constructs URLs using the `git@host:user/repo` format.
 *   **Risk**: This assumes the default SSH port (22) and the standard `git` user. Users with custom SSH configurations (e.g., in `~/.ssh/config` using a different `Host` alias or port) might find these URLs don't work for them, even if a standard `git clone` would.
 *   **Recommendation**: Allow users to override the base SSH host/user string in the config, or use a more flexible URL construction that can respect SSH aliases.
+> **TODO:** Discuss this issue/limitations and how to navigate it.
 
 ### 5. Lack of Atomicity in `entangle init`
 The `init` command performs several side-effecting operations in sequence: `git init`, adding remotes, etc.
 *   **Risk**: If the process is interrupted or fails halfway (e.g., during the remote accessibility check), the repository might be left in a "half-baked" state (e.g., a `.git` folder exists but the `origin` remote is missing or incomplete).
 *   **Recommendation**: Ensure operations are as idempotent as possible (the current code does a good job of this) and consider a "cleanup" or "rollback" mechanism for failed initializations.
+> **TODO:** "The current code does a good job of this" implies that we've done most of what we can, but do another pass with this in mind.
 
 ### 6. Case Sensitivity in Config Parsing
 `git.rs`'s `read_push_urls` expects `[remote "origin"]` exactly.
 *   **Risk**: While standard, Git config is technically case-insensitive for the section name (`remote`). A config containing `[Remote "origin"]` would be missed by `entangle` but respected by `git`.
 *   **Recommendation**: Use case-insensitive matching for the `remote` part of the section header.
+> **TODO:** Accept this, update to case-insensitive remote section header parsing.
 
 ---
 

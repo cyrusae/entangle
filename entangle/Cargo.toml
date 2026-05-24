@@ -42,7 +42,7 @@ dirs = "5"
 
 # All git operations: repo detection, remote inspection, push, ls-refs
 # Using the full gix suite rather than shelling out to git
-gix = { version = "0.70", features = ["blocking-network-client"] }
+gix = { version = "0.83", features = ["blocking-network-client"] }
 
 # Atomic file writes: unique temp file in same directory, then rename.
 # Used by atomic_write in git.rs for .git/config and config.json writes.

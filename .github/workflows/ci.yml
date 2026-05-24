@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Skip live SSH ls-refs calls in integration tests. Tests that require real
+  # network access are already marked #[ignore] in remote.rs.
+  ENTANGLE_SKIP_REMOTE_CHECK: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # test — cargo test on all three platforms
+  # ---------------------------------------------------------------------------
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false   # let all three platforms finish even if one fails
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache the Cargo registry and compiled dependencies across runs.
+      # Keyed on the OS + Cargo.lock so a lock-file bump busts the cache.
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Configure git identity (required by integration tests)
+        # Several integration tests call `git commit`, which requires a name
+        # and email. GitHub Actions runners don't have a global git config by
+        # default, so we set one here.
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+
+      - name: cargo test
+        working-directory: entangle
+        run: cargo test --locked
+
+  # ---------------------------------------------------------------------------
+  # lint — clippy + rustfmt (Ubuntu only; output is platform-independent)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + clippy + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: cargo clippy
+        working-directory: entangle
+        # -D warnings turns clippy warnings into errors so they can't be
+        # accidentally merged. The -- separates cargo args from clippy args.
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: cargo fmt
+        working-directory: entangle
+        run: cargo fmt --check

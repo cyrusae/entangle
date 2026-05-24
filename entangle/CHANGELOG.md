@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Step 12: output polish — owo-colors, indicatif spinners, output style guide (#19)
 - Add setup integration tests and ENTANGLE_CONFIG_PATH env var override (#6)
 - Implement entangle shove command (Step 11) (#14)
 - Wire remote validation (Step 7) into entangle init (#12)
@@ -22,9 +23,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add project skeleton with all four subcommands stubbed and Cargo dependencies (#1)
 
 ### Fixed
+- remote.rs: add access denied variant, document string-matching rationale (#23)
+- git.rs: atomic writes + case-insensitive section matching (#22)
 - Fix push URL order: mirror (non-default) first, origin (default) last (#11)
 
 ### Changed
+- Add 3 missing tests: read-only config, corrupt git config, late Ctrl+C in init (#24)
+- Refactor: wire Config::load/save as production-path API, begin Step 13 hardening (#15)
 - Add Cargo.toml publish metadata for alpha release (#21)
 - Draft README with install, usage, caveats (#20)
 - Add Step 14 to PLAN.md: release packaging, crates.io, CI/CD refinement (#18)

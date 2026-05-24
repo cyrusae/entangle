@@ -654,6 +654,64 @@ mod pty_overwrite_tests {
         p.exp_eof().unwrap();
     }
 
+    /// Read `.git/config` as a raw string for before/after comparison.
+    /// Used to verify that a cancelled `entangle init` made no writes.
+    fn read_git_config(work_dir: &Path) -> String {
+        std::fs::read_to_string(work_dir.join(".git").join("config"))
+            .expect("must be able to read .git/config")
+    }
+
+    #[test]
+    fn ctrl_c_at_replace_prompt_leaves_git_config_unchanged() {
+        let (_dir, config_path, work_dir) = setup_with_gitlab_origin();
+
+        // Snapshot the config before running so we can verify nothing changed.
+        let config_before = read_git_config(&work_dir);
+
+        let cmd = make_cmd(&["entangle"], &config_path, &work_dir);
+        let mut p = spawn_command(cmd, TIMEOUT_MS).expect("failed to spawn PTY session");
+
+        // The replace prompt appears before any .git/config writes.
+        // Ctrl+C sends SIGINT, which kills the process — we just wait for EOF.
+        p.exp_string("Replace it with").unwrap();
+        p.send_control('c').unwrap();
+        let _ = p.exp_eof(); // process exits; ignore whether it printed anything
+
+        assert_eq!(
+            config_before,
+            read_git_config(&work_dir),
+            ".git/config must be unchanged after Ctrl+C at the replace prompt"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_proceed_prompt_leaves_git_config_unchanged() {
+        let (_dir, config_path, work_dir) = setup_with_gitlab_origin();
+
+        // Snapshot the config before running.
+        let config_before = read_git_config(&work_dir);
+
+        let cmd = make_cmd(&["entangle"], &config_path, &work_dir);
+        let mut p = spawn_command(cmd, TIMEOUT_MS).expect("failed to spawn PTY session");
+
+        // Decline replace, then Ctrl+C at proceed-anyway.
+        // Writes only happen after both prompts are answered affirmatively,
+        // so the file must be untouched here.
+        p.exp_string("Replace it with").unwrap();
+        p.send("n").unwrap();
+        p.flush().unwrap();
+
+        p.exp_string("anyway").unwrap();
+        p.send_control('c').unwrap();
+        let _ = p.exp_eof();
+
+        assert_eq!(
+            config_before,
+            read_git_config(&work_dir),
+            ".git/config must be unchanged after Ctrl+C at the proceed-anyway prompt"
+        );
+    }
+
     #[test]
     fn replace_no_proceed_no_prints_cancelled_and_exits() {
         let (_dir, config_path, work_dir) = setup_with_gitlab_origin();

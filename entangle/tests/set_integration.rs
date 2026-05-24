@@ -496,3 +496,48 @@ fn set_gh_user_dangerous_char_exits_nonzero() {
         "dangerous character in username must exit non-zero"
     );
 }
+
+// ---------------------------------------------------------------------------
+// File-system error paths
+// ---------------------------------------------------------------------------
+
+/// When the config directory exists but is not writable, `entangle set` must
+/// exit non-zero and print a clear error rather than panicking or silently
+/// succeeding. Permissions tests are Unix-only; on Windows the permission
+/// model differs and this specific scenario requires different setup.
+#[test]
+#[cfg(unix)]
+fn set_readonly_config_dir_exits_nonzero_with_error() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let config_dir = dir.path().join("cfg");
+    std::fs::create_dir(&config_dir).unwrap();
+
+    // Make the directory read+execute only (no write).
+    let mut perms = std::fs::metadata(&config_dir).unwrap().permissions();
+    perms.set_mode(0o555);
+    std::fs::set_permissions(&config_dir, perms).unwrap();
+
+    let config_path = config_dir.join("config.json");
+    let out = run_set(&["gh-user", "cyrusae"], &config_path);
+
+    // Restore write permission before the TempDir guard drops so cleanup works.
+    let mut perms = std::fs::metadata(&config_dir).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&config_dir, perms).unwrap();
+
+    assert!(
+        !out.status.success(),
+        "set must fail when the config directory is not writable"
+    );
+    let err = stderr(&out);
+    assert!(
+        err.contains("Error"),
+        "stderr must contain an error message: {err}"
+    );
+    assert!(
+        !config_path.exists(),
+        "config file must not be created when the directory is read-only"
+    );
+}

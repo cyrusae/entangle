@@ -197,7 +197,7 @@ pub fn set_origin_fetch_url(
     let config_path = work_dir.join(".git").join("config");
     let content = std::fs::read_to_string(&config_path)?;
     let modified = replace_url_in_origin_section(&content, new_url);
-    std::fs::write(&config_path, modified)?;
+    atomic_write(&config_path, &modified)?;
     Ok(())
 }
 
@@ -220,13 +220,69 @@ pub fn add_push_urls_to_origin(
     let config_path = work_dir.join(".git").join("config");
     let content = std::fs::read_to_string(&config_path)?;
     let modified = insert_push_urls_in_config(&content, push_urls);
-    std::fs::write(&config_path, modified)?;
+    atomic_write(&config_path, &modified)?;
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
 // Pure text-transform helpers
 // ---------------------------------------------------------------------------
+
+/// Returns `true` if `trimmed` (a single line from `.git/config`, already
+/// trimmed of whitespace) is the header for `[<section> "<subsection>"]`.
+///
+/// Section names are compared **case-insensitively** (per the git config spec:
+/// section names like `remote`, `branch`, `core` are case-insensitive).
+/// Subsection names (the value inside the quotes) are **case-sensitive** (also
+/// per the spec: `[remote "origin"]` ≠ `[remote "Origin"]`).
+///
+/// So `[Remote "origin"]`, `[REMOTE "origin"]`, and `[remote "origin"]` all
+/// match when `section = "remote"` and `subsection = "origin"`, but
+/// `[remote "Origin"]` does not.
+fn section_header_matches(trimmed: &str, section: &str, subsection: &str) -> bool {
+    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+        return false;
+    }
+    let inner = trimmed[1..trimmed.len() - 1].trim();
+    // Expected shape: `remote "origin"` (after stripping the outer brackets).
+    if let Some(quote_pos) = inner.find('"') {
+        let name = inner[..quote_pos].trim();
+        let rest = inner[quote_pos..].trim(); // e.g. `"origin"`
+        let expected_rest = format!("\"{subsection}\"");
+        name.eq_ignore_ascii_case(section) && rest == expected_rest
+    } else {
+        false
+    }
+}
+
+/// Write `content` to `path` atomically: create a unique temp file in the
+/// same directory, write to it, then rename it over the target.
+///
+/// Using a unique temp file (via [`tempfile::Builder`]) rather than a fixed
+/// `.lock` sibling means concurrent callers cannot collide on the lock name.
+/// The temp file is created with `O_CREAT | O_EXCL` semantics so no two
+/// processes ever write to the same temp path. The rename is atomic on the
+/// same filesystem (POSIX guarantee), so readers always see either the old
+/// file or the new one, never a partially-written intermediate state.
+///
+/// Creating the temp file in the same directory as the target (via
+/// `tempfile_in`) ensures both paths are on the same filesystem, which is
+/// required for `rename` to be atomic. If `persist` fails (e.g., the target
+/// is on a different filesystem), the temp file is automatically cleaned up
+/// by `tempfile`'s `Drop` implementation.
+///
+/// The `.lock` suffix is retained for recognizability — other tools (e.g.,
+/// text editors) use the same convention to detect in-progress writes.
+fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
+    let dir = path.parent().ok_or("path has no parent directory")?;
+    let mut tmp = tempfile::Builder::new()
+        .suffix(".lock")
+        .tempfile_in(dir)?;
+    tmp.write_all(content.as_bytes())?;
+    tmp.persist(path)?;
+    Ok(())
+}
 
 /// Replace the `url = ...` line inside the `[remote "origin"]` section of a
 /// git config string.
@@ -237,8 +293,10 @@ pub fn add_push_urls_to_origin(
 ///
 /// Indentation is preserved: the replacement line uses the same leading
 /// whitespace as the original.
+///
+/// Section-name matching is case-insensitive (`[Remote "origin"]` matches);
+/// the subsection name `"origin"` is case-sensitive.
 fn replace_url_in_origin_section(config_text: &str, new_url: &str) -> String {
-    let section_header = "[remote \"origin\"]";
     let mut in_section = false;
     let mut replaced = false;
     let mut result = String::with_capacity(config_text.len() + new_url.len());
@@ -247,7 +305,7 @@ fn replace_url_in_origin_section(config_text: &str, new_url: &str) -> String {
         let trimmed = line.trim();
 
         if trimmed.starts_with('[') {
-            in_section = trimmed == section_header;
+            in_section = section_header_matches(trimmed, "remote", "origin");
             result.push_str(line);
             result.push('\n');
             continue;
@@ -286,12 +344,13 @@ fn replace_url_in_origin_section(config_text: &str, new_url: &str) -> String {
 ///
 /// If no `[remote "origin"]` section exists the string is returned unchanged.
 /// An empty `push_urls` slice also returns the string unchanged.
+///
+/// Section-name matching is case-insensitive; subsection name is case-sensitive.
 fn insert_push_urls_in_config(config_text: &str, push_urls: &[&str]) -> String {
     if push_urls.is_empty() {
         return config_text.to_string();
     }
 
-    let section_header = "[remote \"origin\"]";
     let mut in_section = false;
     let mut inserted = false;
     let mut result = String::with_capacity(config_text.len() + push_urls.len() * 60);
@@ -309,7 +368,7 @@ fn insert_push_urls_in_config(config_text: &str, push_urls: &[&str]) -> String {
                 }
                 inserted = true;
             }
-            in_section = trimmed == section_header;
+            in_section = section_header_matches(trimmed, "remote", "origin");
         }
 
         result.push_str(line);
@@ -352,7 +411,6 @@ fn read_push_urls(work_dir: &Path, remote_name: &str) -> Vec<String> {
         Err(_) => return vec![],
     };
 
-    let section_header = format!("[remote \"{remote_name}\"]");
     let mut in_section = false;
     let mut push_urls = Vec::new();
 
@@ -365,10 +423,10 @@ fn read_push_urls(work_dir: &Path, remote_name: &str) -> Vec<String> {
         }
 
         if trimmed.starts_with('[') {
-            // The section header key part ("remote") is case-insensitive, but
-            // we rely on gix and git writing it lowercase, which covers all
-            // realistic cases. The subsection (remote name) is case-sensitive.
-            in_section = trimmed == section_header;
+            // Section names are case-insensitive per the git config spec;
+            // subsection names (the remote name in quotes) are case-sensitive.
+            // section_header_matches handles both correctly.
+            in_section = section_header_matches(trimmed, "remote", remote_name);
             continue;
         }
 
@@ -661,6 +719,96 @@ mod tests {
         append_origin_remote(dir.path(), "git@github.com:cyrusae/entangle.git", &[]);
         let urls = read_push_urls(dir.path(), "origin");
         assert!(urls.is_empty(), "no pushurl entries should yield empty vec");
+    }
+
+    // ── section_header_matches ────────────────────────────────────────────────
+
+    #[test]
+    fn section_header_matches_standard_lowercase() {
+        assert!(section_header_matches(
+            "[remote \"origin\"]",
+            "remote",
+            "origin"
+        ));
+    }
+
+    #[test]
+    fn section_header_matches_uppercase_section_name() {
+        assert!(section_header_matches(
+            "[Remote \"origin\"]",
+            "remote",
+            "origin"
+        ));
+    }
+
+    #[test]
+    fn section_header_matches_allcaps_section_name() {
+        assert!(section_header_matches(
+            "[REMOTE \"origin\"]",
+            "remote",
+            "origin"
+        ));
+    }
+
+    #[test]
+    fn section_header_matches_subsection_is_case_sensitive() {
+        // Subsection names are case-sensitive per the git config spec.
+        assert!(!section_header_matches(
+            "[remote \"Origin\"]",
+            "remote",
+            "origin"
+        ));
+        assert!(!section_header_matches(
+            "[remote \"ORIGIN\"]",
+            "remote",
+            "origin"
+        ));
+    }
+
+    #[test]
+    fn section_header_matches_different_remote_name() {
+        assert!(!section_header_matches(
+            "[remote \"upstream\"]",
+            "remote",
+            "origin"
+        ));
+    }
+
+    #[test]
+    fn section_header_matches_different_section() {
+        assert!(!section_header_matches(
+            "[branch \"main\"]",
+            "remote",
+            "origin"
+        ));
+    }
+
+    #[test]
+    fn section_header_matches_no_subsection() {
+        assert!(!section_header_matches("[core]", "remote", "origin"));
+    }
+
+    #[test]
+    fn read_push_urls_handles_case_insensitive_section_name() {
+        // [Remote "origin"] must be treated the same as [remote "origin"].
+        let dir = TempDir::new().unwrap();
+        gix::init(dir.path()).unwrap();
+        use std::io::Write as _;
+        let config_path = dir.path().join(".git").join("config");
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&config_path)
+            .unwrap();
+        writeln!(file, "\n[Remote \"origin\"]").unwrap();
+        writeln!(file, "\turl = git@github.com:cyrusae/entangle.git").unwrap();
+        writeln!(file, "\tpushurl = git@tangled.org:atdot.fyi/entangle").unwrap();
+
+        let urls = read_push_urls(dir.path(), "origin");
+        assert_eq!(
+            urls,
+            vec!["git@tangled.org:atdot.fyi/entangle"],
+            "case-insensitive section name must be recognized"
+        );
     }
 
     #[test]

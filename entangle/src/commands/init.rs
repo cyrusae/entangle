@@ -558,7 +558,7 @@ fn prompt_repo_name() -> Result<String, Box<dyn std::error::Error>> {
     let theme = ColorfulTheme::default();
     loop {
         let raw = match Input::<String>::with_theme(&theme)
-            .with_prompt("Repository name (on GitHub)")
+            .with_prompt("Repository name (on your origin forge)")
             .interact_text()
         {
             Ok(v) => v,
@@ -581,7 +581,7 @@ fn prompt_alias_optional() -> Result<Option<String>, Box<dyn std::error::Error>>
     let theme = ColorfulTheme::default();
     loop {
         let raw = match Input::<String>::with_theme(&theme)
-            .with_prompt("Alias on Tangled (leave blank to use the same name)")
+            .with_prompt("Alias on mirror forge (leave blank to use the same name)")
             .allow_empty(true)
             .interact_text()
         {
@@ -1093,5 +1093,43 @@ mod tests {
             }
             git::OriginStatus::Absent => panic!("expected Present"),
         }
+    }
+
+    // ── Resilience: corrupt .git/config ──────────────────────────────────────
+
+    /// Verifies that a corrupt `.git/config` does not cause a panic.
+    ///
+    /// The exact outcome (Ok or Err) depends on how lenient gix is about the
+    /// specific corruption. What must NOT happen is an unwrap panic or process
+    /// abort — the test passing without panicking is the verification.
+    #[test]
+    fn corrupt_git_config_does_not_panic() {
+        let (_dir, work_dir) = fresh_work_dir();
+        gix::init(&work_dir).unwrap();
+
+        // Overwrite .git/config with a syntactically broken section header
+        // (missing closing bracket). This is the corruption pattern the
+        // adversarial review flagged as a potential panic source.
+        let config_path = work_dir.join(".git").join("config");
+        std::fs::write(
+            &config_path,
+            "[core\n\trepositoryformatversion = 0\nfilemode = true\n",
+        )
+        .unwrap();
+
+        // Must return Ok or Err — not panic.
+        let result = run_with_paths(
+            Some("entangle".to_string()),
+            None,
+            test_config(),
+            &work_dir,
+            false,
+            false,
+            skip_validate,
+        );
+        // Either outcome is valid: gix may tolerate the corruption (Ok) or
+        // surface it as an error (Err). The test asserts only that no panic
+        // occurred, which is proven by reaching this line.
+        drop(result);
     }
 }

@@ -19,18 +19,41 @@
 //! gix wraps SSH subprocess output in its error chain. We classify by inspecting
 //! the `Display` of the full error chain:
 //!
-//! | Substring in error chain          | Classification        |
-//! |-----------------------------------|-----------------------|
-//! | "permission denied", "publickey"  | `AuthFailure`         |
-//! | "authentication failed"           | `AuthFailure`         |
-//! | "repository not found"            | `NotFound`            |
-//! | "repository does not exist"       | `NotFound`            |
-//! | Timeout (30 s with no response)   | `NetworkError`        |
-//! | Anything else                     | `NetworkError`        |
+//! | Substring in error chain                       | Classification        |
+//! |------------------------------------------------|-----------------------|
+//! | "permission denied", "publickey"               | `AuthFailure`         |
+//! | "authentication failed", "access denied"       | `AuthFailure`         |
+//! | "repository not found"                         | `NotFound`            |
+//! | "repository does not exist", "no such repo…"   | `NotFound`            |
+//! | Timeout (30 s with no response)                | `NetworkError`        |
+//! | Anything else                                  | `NetworkError`        |
 //!
 //! The classification is intentionally conservative: when in doubt we report
 //! `NetworkError` and prompt the user rather than incorrectly claiming a hard
 //! `NotFound` or `AuthFailure`.
+//!
+//! ## Why string matching (not typed errors)
+//!
+//! The errors that distinguish `AuthFailure` from `NotFound` do not originate
+//! in gix — they come from two external sources that gix cannot control:
+//!
+//! - **The `ssh` binary**: auth failures surface as SSH's stderr output
+//!   (e.g. `"Permission denied (publickey)."`). gix captures this text verbatim
+//!   inside a transport error; there is no structured variant to downcast to.
+//!
+//! - **The remote server's `git-upload-pack`**: "repository not found" is what
+//!   GitHub/Tangled write to stderr when the repo doesn't exist. Again, gix
+//!   wraps it as raw text.
+//!
+//! Replacing substring matching with typed downcasting into gix's internal
+//! transport error types would be more fragile (those types are not part of
+//! gix's stable public API) without being more correct. String matching is
+//! therefore the intentional, correct approach for this layer.
+//!
+//! The one practical limitation: if the user's `ssh` binary outputs localized
+//! error messages, auth failures may be misidentified as `NetworkError` (see
+//! README "Known limitations"). The fallback behaviour — prompting the user to
+//! accept the offline override — is safe in all cases.
 //!
 //! ## Timeout
 //!
@@ -315,6 +338,7 @@ fn classify_error_str(lower: &str) -> RemoteCheckResult {
     if lower.contains("permission denied")
         || lower.contains("publickey")
         || lower.contains("authentication failed")
+        || lower.contains("access denied")
     {
         RemoteCheckResult::AuthFailure
     } else if lower.contains("repository not found")
@@ -377,6 +401,14 @@ mod tests {
     fn classify_authentication_failed_is_auth_failure() {
         assert_eq!(
             classify_error_str("authentication failed"),
+            RemoteCheckResult::AuthFailure
+        );
+    }
+
+    #[test]
+    fn classify_access_denied_is_auth_failure() {
+        assert_eq!(
+            classify_error_str("access denied"),
             RemoteCheckResult::AuthFailure
         );
     }

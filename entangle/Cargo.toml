@@ -35,7 +35,14 @@ dirs = "5"
 # Using the full gix suite rather than shelling out to git
 gix = { version = "0.70", features = ["blocking-network-client"] }
 
-[dev-dependencies]
-rexpect = "0.7.1"
-# tempfile is useful for integration tests that need throwaway git repos
+# Atomic file writes: unique temp file in same directory, then rename.
+# Used by atomic_write in git.rs for .git/config and config.json writes.
 tempfile = "3"
+
+# rexpect uses Unix PTY APIs (via the `nix` crate) and cannot compile on
+# Windows. The PTY test modules that use it are already gated with
+# #[cfg(unix)], but Cargo compiles all [dev-dependencies] unconditionally
+# regardless of #[cfg] usage in source. Restricting to cfg(unix) here
+# prevents the Windows build from trying to compile rexpect at all.
+[target.'cfg(unix)'.dev-dependencies]
+rexpect = "0.7.1"

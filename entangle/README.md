@@ -141,6 +141,14 @@ You can override the path for scripting or testing with the `ENTANGLE_CONFIG_PAT
 
 ---
 
+## Known limitations
+
+**SSH URL format only.** entangle constructs `git@host:user/repo` SSH URLs and assumes the default SSH port (22) and the standard `git` user. Users with non-standard SSH configurations (custom ports, `Host` aliases in `~/.ssh/config`) will need to edit the generated remote URLs manually after running `entangle init`.
+
+**SSH error messages are matched in English.** When `entangle init` checks whether a remote is reachable, it classifies failures by inspecting the text output of the `ssh` subprocess. If your system's SSH binary has been localized, an authentication failure may be reported as a generic connectivity problem ("couldn't reach remote") rather than the more specific "SSH key not set up" message. The behaviour in that case is still safe — entangle will prompt you to accept the override — but the error description may be less helpful.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

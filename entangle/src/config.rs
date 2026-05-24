@@ -429,7 +429,33 @@ impl Config {
         // At this point we know all three keys are present. Deserialization can
         // still fail if a value has the wrong type (e.g., `origin_preference`
         // is `"gitlab"` — not a valid variant). Treat that as Corrupted.
-        serde_json::from_value(value).map_err(|e| ConfigError::Corrupted(e.to_string()))
+        let cfg: Config =
+            serde_json::from_value(value).map_err(|e| ConfigError::Corrupted(e.to_string()))?;
+
+        // ── 7. Re-validate field values against newline injection ─────────────
+        // Guard against manual edits or external tools that insert `\n` or `\r`
+        // into config.json. A newline in a username would be written verbatim
+        // into `.git/config` by `entangle init`, potentially injecting arbitrary
+        // git config sections (e.g. `core.sshCommand`). We check the deserialized
+        // value directly rather than re-running `validate_github_username` etc.,
+        // which also sanitizes (lowercases, strips quotes) — inappropriate here
+        // since we want to accept exactly what was previously validated and stored.
+        if cfg.github_username.contains(['\n', '\r']) {
+            return Err(ConfigError::Corrupted(
+                "github_username contains a newline character. \
+                 Edit config.json or re-run `entangle set gh-user <username>`."
+                    .to_string(),
+            ));
+        }
+        if cfg.tangled_username.contains(['\n', '\r']) {
+            return Err(ConfigError::Corrupted(
+                "tangled_username contains a newline character. \
+                 Edit config.json or re-run `entangle set tngl-user <handle>`."
+                    .to_string(),
+            ));
+        }
+
+        Ok(cfg)
     }
 
     // ---------------------------------------------------------------------------
@@ -618,6 +644,32 @@ mod tests {
         assert!(
             matches!(err, ConfigError::Corrupted(_)),
             "expected Corrupted, got: {err}"
+        );
+    }
+
+    #[test]
+    fn load_corrupted_for_newline_in_github_username() {
+        // A manually edited config.json with a newline injected into the username
+        // must be rejected — writing it to .git/config would inject arbitrary sections.
+        let f = temp_with(
+            "{\"github_username\":\"cyrus\\nae\",\"tangled_username\":\"atdot.fyi\",\"origin_preference\":\"github\"}",
+        );
+        let err = Config::load_from_path(f.path()).unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Corrupted(_)),
+            "expected Corrupted for newline in github_username, got: {err}"
+        );
+    }
+
+    #[test]
+    fn load_corrupted_for_newline_in_tangled_username() {
+        let f = temp_with(
+            "{\"github_username\":\"cyrusae\",\"tangled_username\":\"atdot\\nfyi\",\"origin_preference\":\"github\"}",
+        );
+        let err = Config::load_from_path(f.path()).unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Corrupted(_)),
+            "expected Corrupted for newline in tangled_username, got: {err}"
         );
     }
 

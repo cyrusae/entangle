@@ -9,6 +9,8 @@ homepage = "https://github.com/cyrusae/entangle"
 readme = "README.md"
 keywords = ["git", "tangled", "mirror", "forge", "atproto"]
 categories = ["command-line-utilities", "development-tools"]
+# Exclude tooling/editor state directories that must never ship in the crate.
+exclude = [".chainlink", ".claude", ".mcp.json"]
 
 # Keep the installed binary named `entangle` even though the crates.io package
 # is `entangle-mirror` (the name `entangle` was already taken on crates.io).

@@ -12,6 +12,7 @@ This document tracks findings from running `cargo-mutants` on the `entangle` cra
 *   [x] **Add Interactive `init` Integration Tests** (Completed)
 *   [x] **Add Partially-Configured Remote Tests** (Completed)
 *   [x] **Add Length Boundary Validation Tests** (Completed)
+*   [x] **Set up pull-request diff mutation CI pipeline** (Completed)
 
 ---
 
@@ -43,3 +44,7 @@ This document tracks findings from running `cargo-mutants` on the `entangle` cra
 ### 6. Length Boundary Validation Tests
 *   **Action Taken:** Added `tangled_label_valid_at_exactly_63_chars`, `tangled_label_invalid_at_64_chars`, `tangled_tld_valid_at_exactly_63_chars`, and `tangled_tld_invalid_at_64_chars` unit tests to `tests` module in [validate.rs](file:///Users/watcher/GitHere/entangle/entangle/src/validate.rs).
 *   **Rationale:** Verifies behavior exactly at the 63-character boundary limit (valid) and 64-character limit (invalid) for ATProto labels and TLDs.
+
+### 7. Pull-Request Diff Mutation CI Pipeline
+*   **Action Taken:** Created [.github/workflows/mutants.yml](file:///Users/watcher/GitHere/entangle/.github/workflows/mutants.yml) workflow file.
+*   **Rationale:** Automatically triggers mutation testing on pull requests targeting `main`. Uses the `--in-diff` flag to generate and test mutants *only* on lines modified in the PR, keeping execution time fast (~1–2 minutes) and preventing CI bloat.

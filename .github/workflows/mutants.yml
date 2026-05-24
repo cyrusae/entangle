@@ -1,0 +1,42 @@
+name: Mutation Testing
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:   # Allows manual trigger from GitHub UI
+
+env:
+  CARGO_TERM_COLOR: always
+  # Skip live SSH network checks in tests
+  ENTANGLE_SKIP_REMOTE_CHECK: "1"
+
+jobs:
+  mutants:
+    name: cargo-mutants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history so git diff works
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      # Download and install pre-compiled cargo-mutants binary (saves ~2 mins of compilation time)
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+
+      # Several integration tests run git operations and require a configured git identity
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+
+      # Generate diff against the base branch and run mutants on modified lines only
+      - name: Run cargo-mutants
+        working-directory: entangle
+        run: |
+          git diff origin/${{ github.base_ref }}... > ../pr.diff
+          cargo mutants --in-diff ../pr.diff

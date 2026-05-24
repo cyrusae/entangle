@@ -28,9 +28,9 @@
 //! with `entangle set` and makes them testable with piped stdin — `Select`
 //! requires arrow-key input that doesn't work in non-TTY environments.
 
-use dialoguer::{theme::ColorfulTheme, Confirm, Input};
+use dialoguer::{Confirm, Input, theme::ColorfulTheme};
 
-use crate::config::{config_path, Config, OriginPreference, PartialConfig};
+use crate::config::{Config, OriginPreference, PartialConfig, config_path};
 use crate::validate::{validate_github_username, validate_tangled_username};
 
 // ---------------------------------------------------------------------------
@@ -59,11 +59,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── 2. Collect all three values before writing anything ──────────────────
     // If any prompt returns None the user has cancelled — exit without writing.
-    let github_username =
-        match prompt_text(&theme, "GitHub username", existing.github_username.as_deref(), validate_github_username)? {
-            Some(v) => v,
-            None => return handle_cancel(),
-        };
+    let github_username = match prompt_text(
+        &theme,
+        "GitHub username",
+        existing.github_username.as_deref(),
+        validate_github_username,
+    )? {
+        Some(v) => v,
+        None => return handle_cancel(),
+    };
 
     let tangled_username = match prompt_text(
         &theme,
@@ -75,11 +79,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         None => return handle_cancel(),
     };
 
-    let origin_preference =
-        match prompt_origin(&theme, existing.origin_preference.as_ref())? {
-            Some(v) => v,
-            None => return handle_cancel(),
-        };
+    let origin_preference = match prompt_origin(&theme, existing.origin_preference.as_ref())? {
+        Some(v) => v,
+        None => return handle_cancel(),
+    };
 
     // ── 3. Write — only reached if all three prompts completed ───────────────
     // All values are collected in memory before any file I/O. If any prompt
@@ -351,9 +354,9 @@ mod tests {
         // rather than re-testing what the unit tests above already cover.
         //
         // A full end-to-end Ctrl+C test would require spawning the binary with
-        // a signal injected mid-prompt — that's an integration test that needs
-        // a real terminal emulator and is beyond practical unit testing scope.
-        assert!(true, "structural guarantee documented above");
+        // a signal injected mid-prompt — that's covered by the PTY integration
+        // tests in tests/setup_integration.rs (ctrl_c_on_first_prompt_does_not_write_config
+        // and ctrl_c_mid_setup_leaves_existing_config_unchanged).
     }
 
     // ── Config written correctly after completion ─────────────────────────────

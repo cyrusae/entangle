@@ -118,7 +118,10 @@ pub fn sanitize(input: &str) -> Result<String, ValidationError> {
 
     // Step 2: remove single and double quotes silently.
     // A user who typed `entangle set gh-user "cyrusae"` meant well.
-    let dequoted: String = trimmed.chars().filter(|c| *c != '\'' && *c != '"').collect();
+    let dequoted: String = trimmed
+        .chars()
+        .filter(|c| *c != '\'' && *c != '"')
+        .collect();
 
     // Step 3: reject dangerous characters loudly.
     // We check after quote removal so bare quotes don't accidentally mask
@@ -392,49 +395,73 @@ mod tests {
     #[test]
     fn sanitize_rejects_space() {
         let err = sanitize("hello world").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: ' ' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: ' ' }
+        ));
     }
 
     #[test]
     fn sanitize_rejects_backtick() {
         let err = sanitize("hello`world").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '`' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '`' }
+        ));
     }
 
     #[test]
     fn sanitize_rejects_dollar_sign() {
         let err = sanitize("$VAR").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '$' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '$' }
+        ));
     }
 
     #[test]
     fn sanitize_rejects_semicolon() {
         let err = sanitize("foo;bar").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: ';' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: ';' }
+        ));
     }
 
     #[test]
     fn sanitize_rejects_pipe() {
         let err = sanitize("foo|bar").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '|' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '|' }
+        ));
     }
 
     #[test]
     fn sanitize_rejects_ampersand() {
         let err = sanitize("foo&bar").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '&' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '&' }
+        ));
     }
 
     #[test]
     fn sanitize_rejects_gt() {
         let err = sanitize("foo>bar").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '>' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '>' }
+        ));
     }
 
     #[test]
     fn sanitize_rejects_lt() {
         let err = sanitize("foo<bar").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '<' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '<' }
+        ));
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -537,60 +564,81 @@ mod tests {
 
     #[test]
     fn tangled_uppercase_lowercased_before_validation() {
-        assert_eq!(
-            validate_tangled_username("AtDot.FYI").unwrap(),
-            "atdot.fyi"
-        );
+        assert_eq!(validate_tangled_username("AtDot.FYI").unwrap(), "atdot.fyi");
     }
 
     #[test]
     fn tangled_no_dot_invalid() {
         let err = validate_tangled_username("nodot").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
     fn tangled_underscore_invalid() {
         let err = validate_tangled_username("has_under.score").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
     fn tangled_tld_with_digit_invalid() {
         // TLD must be letters only — digits not allowed.
         let err = validate_tangled_username("user.fyi2").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
     fn tangled_label_leading_hyphen_invalid() {
         let err = validate_tangled_username("-user.fyi").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
     fn tangled_label_trailing_hyphen_invalid() {
         let err = validate_tangled_username("user-.fyi").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
     fn tangled_empty_label_from_double_dot_invalid() {
         let err = validate_tangled_username("user..fyi").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
     fn tangled_empty_tld_invalid() {
         // Trailing dot → empty TLD.
         let err = validate_tangled_username("user.fyi.").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
     fn tangled_empty_invalid() {
         let err = validate_tangled_username("").unwrap_err();
-        assert!(matches!(err, ValidationError::InvalidTangledUsername { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::InvalidTangledUsername { .. }
+        ));
     }
 
     #[test]
@@ -713,18 +761,27 @@ mod tests {
     fn dangerous_char_propagates_through_github_validator() {
         // Shell metacharacter → DangerousCharacter, not InvalidGithubUsername.
         let err = validate_github_username("cyrus$ae").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '$' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '$' }
+        ));
     }
 
     #[test]
     fn dangerous_char_propagates_through_repo_validator() {
         let err = validate_repo_name("my|repo").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: '|' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: '|' }
+        ));
     }
 
     #[test]
     fn dangerous_char_propagates_through_tangled_validator() {
         let err = validate_tangled_username("user;name.fyi").unwrap_err();
-        assert!(matches!(err, ValidationError::DangerousCharacter { ch: ';' }));
+        assert!(matches!(
+            err,
+            ValidationError::DangerousCharacter { ch: ';' }
+        ));
     }
 }

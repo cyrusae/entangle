@@ -158,12 +158,9 @@ pub fn check_remote(url: &str) -> RemoteCheckResult {
 ///
 /// Calls `check_remote` for each URL and uses `dialoguer` for the offline-override
 /// prompt. Testable logic lives in [`validate_remotes_with_checker`].
-pub fn validate_remotes(
-    origin_url: &str,
-    mirror_url: &str,
-) -> Result<(), RemoteError> {
+pub fn validate_remotes(origin_url: &str, mirror_url: &str) -> Result<(), RemoteError> {
     validate_remotes_with_checker(origin_url, mirror_url, check_remote, |url| {
-        use dialoguer::{theme::ColorfulTheme, Confirm};
+        use dialoguer::{Confirm, theme::ColorfulTheme};
         eprintln!("Warning: couldn't reach '{url}'.");
         Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt("Accept anyway and proceed with setup?")
@@ -206,12 +203,12 @@ pub fn validate_remotes_with_checker(
         RemoteCheckResult::NotFound => {
             return Err(RemoteError::OriginNotFound {
                 url: origin_url.to_string(),
-            })
+            });
         }
         RemoteCheckResult::AuthFailure => {
             return Err(RemoteError::OriginAuthFailure {
                 url: origin_url.to_string(),
-            })
+            });
         }
         RemoteCheckResult::NetworkError(_) => {
             if !offline_override(origin_url) {
@@ -227,12 +224,12 @@ pub fn validate_remotes_with_checker(
         RemoteCheckResult::NotFound => {
             return Err(RemoteError::MirrorNotFound {
                 url: mirror_url.to_string(),
-            })
+            });
         }
         RemoteCheckResult::AuthFailure => {
             return Err(RemoteError::MirrorAuthFailure {
                 url: mirror_url.to_string(),
-            })
+            });
         }
         RemoteCheckResult::NetworkError(_) => {
             if !offline_override(mirror_url) {
@@ -261,7 +258,7 @@ fn do_ls_refs_blocking(url_str: &str) -> RemoteCheckResult {
         Err(e) => {
             return RemoteCheckResult::NetworkError(format!(
                 "not in a git repository (required for remote checks): {e}"
-            ))
+            ));
         }
     };
 
@@ -269,7 +266,7 @@ fn do_ls_refs_blocking(url_str: &str) -> RemoteCheckResult {
     let url = match gix::url::parse(url_str.as_bytes().into()) {
         Ok(u) => u,
         Err(e) => {
-            return RemoteCheckResult::NetworkError(format!("invalid remote URL '{url_str}': {e}"))
+            return RemoteCheckResult::NetworkError(format!("invalid remote URL '{url_str}': {e}"));
         }
     };
 
@@ -434,7 +431,10 @@ mod tests {
             url: "git@github.com:user/repo.git".to_string(),
         };
         let s = e.to_string();
-        assert!(s.contains("git@github.com:user/repo.git"), "must mention URL: {s}");
+        assert!(
+            s.contains("git@github.com:user/repo.git"),
+            "must mention URL: {s}"
+        );
         assert!(s.contains("does not exist"), "must describe problem: {s}");
     }
 
@@ -444,8 +444,14 @@ mod tests {
             url: "git@github.com:user/repo.git".to_string(),
         };
         let s = e.to_string();
-        assert!(s.contains("git@github.com:user/repo.git"), "must mention URL: {s}");
-        assert!(s.contains("SSH authentication"), "must describe problem: {s}");
+        assert!(
+            s.contains("git@github.com:user/repo.git"),
+            "must mention URL: {s}"
+        );
+        assert!(
+            s.contains("SSH authentication"),
+            "must describe problem: {s}"
+        );
     }
 
     #[test]
@@ -454,14 +460,20 @@ mod tests {
             url: "git@tangled.org:user/repo".to_string(),
         };
         let s = e.to_string();
-        assert!(s.contains("git@tangled.org:user/repo"), "must mention URL: {s}");
+        assert!(
+            s.contains("git@tangled.org:user/repo"),
+            "must mention URL: {s}"
+        );
         assert!(s.contains("does not exist"), "must describe problem: {s}");
     }
 
     #[test]
     fn remote_error_offline_aborted_mentions_network_and_retry() {
         let s = RemoteError::OfflineAborted.to_string();
-        assert!(s.contains("cancelled") || s.contains("aborted"), "must say it was cancelled: {s}");
+        assert!(
+            s.contains("cancelled") || s.contains("aborted"),
+            "must say it was cancelled: {s}"
+        );
         assert!(s.contains("entangle init"), "must suggest retry: {s}");
     }
 
@@ -488,10 +500,7 @@ mod tests {
             |_| false, // offline prompt: not expected to be called
         );
 
-        assert!(
-            result.is_err(),
-            "NotFound on origin must be an error"
-        );
+        assert!(result.is_err(), "NotFound on origin must be an error");
         assert!(
             !mirror_checked.load(std::sync::atomic::Ordering::SeqCst),
             "mirror must not be checked when origin fails with NotFound"
@@ -523,7 +532,10 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!mirror_checked.load(std::sync::atomic::Ordering::SeqCst));
-        assert!(matches!(result.unwrap_err(), RemoteError::OriginAuthFailure { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            RemoteError::OriginAuthFailure { .. }
+        ));
     }
 
     // ── validate_remotes_with_checker — happy paths ───────────────────────────
@@ -553,7 +565,10 @@ mod tests {
             },
             |_| false,
         );
-        assert!(matches!(result.unwrap_err(), RemoteError::MirrorNotFound { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            RemoteError::MirrorNotFound { .. }
+        ));
     }
 
     #[test]
@@ -570,7 +585,10 @@ mod tests {
             },
             |_| false,
         );
-        assert!(matches!(result.unwrap_err(), RemoteError::MirrorAuthFailure { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            RemoteError::MirrorAuthFailure { .. }
+        ));
     }
 
     // ── validate_remotes_with_checker — NetworkError / offline override ───────

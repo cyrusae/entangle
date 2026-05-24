@@ -34,7 +34,11 @@ fn run_setup_piped(dir: &TempDir, stdin_bytes: &[u8]) -> (std::process::Output, 
     (output, config_path)
 }
 
-fn spawn_entangle_piped(args: &[&str], config_path: &Path, stdin_bytes: &[u8]) -> std::process::Output {
+fn spawn_entangle_piped(
+    args: &[&str],
+    config_path: &Path,
+    stdin_bytes: &[u8],
+) -> std::process::Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_entangle"))
         .args(args)
         .env("ENTANGLE_CONFIG_PATH", config_path)
@@ -193,7 +197,10 @@ mod pty_tests {
         p.exp_string("saved").unwrap();
         p.exp_eof().unwrap();
 
-        assert_eq!(read_config_json(&config_path)["origin_preference"], "tangled");
+        assert_eq!(
+            read_config_json(&config_path)["origin_preference"],
+            "tangled"
+        );
     }
 
     #[test]
@@ -211,7 +218,10 @@ mod pty_tests {
         p.exp_string("saved").unwrap();
         p.exp_eof().unwrap();
 
-        assert_eq!(read_config_json(&config_path)["origin_preference"], "github");
+        assert_eq!(
+            read_config_json(&config_path)["origin_preference"],
+            "github"
+        );
     }
 
     #[test]
@@ -229,7 +239,10 @@ mod pty_tests {
         p.exp_string("saved").unwrap();
         p.exp_eof().unwrap();
 
-        assert_eq!(read_config_json(&config_path)["origin_preference"], "tangled");
+        assert_eq!(
+            read_config_json(&config_path)["origin_preference"],
+            "tangled"
+        );
     }
 
     /// Quoted + mixed-case username is sanitized before saving.
@@ -293,7 +306,10 @@ mod pty_tests {
         p.exp_string("saved").unwrap();
         p.exp_eof().unwrap();
 
-        assert_eq!(read_config_json(&config_path)["tangled_username"], "atdot.fyi");
+        assert_eq!(
+            read_config_json(&config_path)["tangled_username"],
+            "atdot.fyi"
+        );
     }
 
     #[test]
@@ -313,7 +329,10 @@ mod pty_tests {
         p.exp_string("saved").unwrap();
         p.exp_eof().unwrap();
 
-        assert_eq!(read_config_json(&config_path)["origin_preference"], "github");
+        assert_eq!(
+            read_config_json(&config_path)["origin_preference"],
+            "github"
+        );
     }
 
     // ── Pre-existing config — "already set" prompts ───────────────────────────
@@ -414,6 +433,9 @@ mod pty_tests {
         let _ = p.exp_eof();
 
         let after = std::fs::read_to_string(&config_path).unwrap();
-        assert_eq!(original, after, "pre-existing config must be unchanged after Ctrl+C");
+        assert_eq!(
+            original, after,
+            "pre-existing config must be unchanged after Ctrl+C"
+        );
     }
 }

@@ -20,7 +20,7 @@
 use std::path::Path;
 
 use crate::cli::SetKey;
-use crate::config::{config_path, OriginPreference, PartialConfig};
+use crate::config::{OriginPreference, PartialConfig, config_path};
 use crate::validate::{validate_github_username, validate_tangled_username};
 
 // ---------------------------------------------------------------------------
@@ -280,8 +280,7 @@ mod tests {
     #[test]
     fn invalid_origin_value_does_not_write_config() {
         let f = NamedTempFile::new().unwrap();
-        let result =
-            run_with_config_path(SetKey::Origin, "gitlab".to_string(), f.path());
+        let result = run_with_config_path(SetKey::Origin, "gitlab".to_string(), f.path());
         assert!(result.is_err());
         let partial = read_partial(&f);
         assert_eq!(partial.origin_preference, None);
@@ -290,8 +289,7 @@ mod tests {
     #[test]
     fn dangerous_char_in_username_does_not_write_config() {
         let f = NamedTempFile::new().unwrap();
-        let result =
-            run_with_config_path(SetKey::GithubUser, "cyrus$ae".to_string(), f.path());
+        let result = run_with_config_path(SetKey::GithubUser, "cyrus$ae".to_string(), f.path());
         assert!(result.is_err());
         let partial = read_partial(&f);
         assert_eq!(partial.github_username, None);

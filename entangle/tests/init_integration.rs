@@ -342,6 +342,69 @@ fn invalid_repo_name_does_not_create_git_repo() {
 }
 
 // ---------------------------------------------------------------------------
+// Argument-parsing edge cases
+// ---------------------------------------------------------------------------
+
+/// `entangle init` accepts at most two positional arguments (REPO and ALIAS).
+/// A third positional argument must be rejected by clap with a non-zero exit.
+#[test]
+fn init_with_three_positional_args_exits_nonzero() {
+    let (_dir, config_path, work_dir) = setup_dirs();
+
+    let output = run_init(
+        &["entangle", "my-alias", "extra-arg"],
+        &config_path,
+        &work_dir,
+    );
+    assert!(
+        !output.status.success(),
+        "init with 3+ positional args must exit non-zero\nstdout: {}\nstderr: {}",
+        stdout(&output),
+        stderr(&output)
+    );
+    // clap writes usage errors to stderr.
+    let err = stderr(&output);
+    assert!(
+        !err.is_empty(),
+        "stderr must contain an error message for the unexpected argument"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Case normalisation (end-to-end in the binary)
+// ---------------------------------------------------------------------------
+
+/// Repo name supplied in uppercase must be lowercased before use.
+///
+/// This confirms that sanitize-before-validate runs in the binary's argument
+/// path, not just in the unit-tested validate functions.
+#[test]
+fn init_uppercase_repo_name_is_normalised() {
+    let (_dir, config_path, work_dir) = setup_dirs();
+
+    // "ENTANGLE" → should be normalised to "entangle".
+    let output = run_init(&["ENTANGLE"], &config_path, &work_dir);
+    assert!(
+        output.status.success(),
+        "uppercase repo name must succeed after normalisation\nstdout: {}\nstderr: {}",
+        stdout(&output),
+        stderr(&output)
+    );
+
+    let out = stdout(&output);
+    // The URL preview must use the lowercased form.
+    assert!(
+        out.contains("entangle"),
+        "output must use the normalised (lowercase) repo name\nstdout: {out}"
+    );
+    // The uppercase original must not appear literally in any URL.
+    assert!(
+        !out.contains("ENTANGLE"),
+        "output must not contain the un-normalised uppercase name\nstdout: {out}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Step 9 — early exit (all platforms, piped stdin)
 //
 // These tests exercise the "both push URLs already present" path which does
@@ -531,11 +594,7 @@ mod pty_overwrite_tests {
         // Create the git repo first (init_if_needed runs before remote inspection).
         gix::init(&work_dir).expect("gix::init must succeed");
         // Add a GitLab remote that won't match the github-preference config.
-        append_origin_remote(
-            &work_dir,
-            "git@gitlab.com:someone/something.git",
-            &[],
-        );
+        append_origin_remote(&work_dir, "git@gitlab.com:someone/something.git", &[]);
         (dir, config_path, work_dir)
     }
 

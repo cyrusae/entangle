@@ -142,7 +142,10 @@ pub fn get_origin_status(work_dir: &Path) -> Result<OriginStatus, Box<dyn std::e
     };
 
     let push_urls = read_push_urls(work_dir, "origin");
-    Ok(OriginStatus::Present { fetch_url, push_urls })
+    Ok(OriginStatus::Present {
+        fetch_url,
+        push_urls,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +253,10 @@ fn replace_url_in_origin_section(config_text: &str, new_url: &str) -> String {
             continue;
         }
 
-        if in_section && !replaced && let Some(eq_pos) = trimmed.find('=') {
+        if in_section
+            && !replaced
+            && let Some(eq_pos) = trimmed.find('=')
+        {
             let key = trimmed[..eq_pos].trim();
             if key.eq_ignore_ascii_case("url") {
                 // Preserve the original indentation.
@@ -392,13 +398,20 @@ mod tests {
     #[test]
     fn is_git_repo_returns_false_for_empty_directory() {
         let dir = TempDir::new().unwrap();
-        assert!(!is_git_repo(dir.path()), "empty directory must not be a git repo");
+        assert!(
+            !is_git_repo(dir.path()),
+            "empty directory must not be a git repo"
+        );
     }
 
     #[test]
     fn is_git_repo_returns_false_for_directory_with_files_but_no_git() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("main.rs"), b"fn main() { println!(\"hi\"); }").unwrap();
+        std::fs::write(
+            dir.path().join("main.rs"),
+            b"fn main() { println!(\"hi\"); }",
+        )
+        .unwrap();
         assert!(
             !is_git_repo(dir.path()),
             "directory with files but no .git must not be a git repo"
@@ -409,7 +422,10 @@ mod tests {
     fn is_git_repo_returns_true_after_gix_init() {
         let dir = TempDir::new().unwrap();
         gix::init(dir.path()).expect("gix::init must succeed on a fresh temp dir");
-        assert!(is_git_repo(dir.path()), "directory with .git must be a git repo");
+        assert!(
+            is_git_repo(dir.path()),
+            "directory with .git must be a git repo"
+        );
     }
 
     #[test]
@@ -430,8 +446,14 @@ mod tests {
     fn init_if_needed_creates_git_repo_and_returns_true() {
         let dir = TempDir::new().unwrap();
         let was_new = init_if_needed(dir.path()).expect("init_if_needed must succeed");
-        assert!(was_new, "must return true when initializing a fresh directory");
-        assert!(is_git_repo(dir.path()), "directory must be a git repo after init");
+        assert!(
+            was_new,
+            "must return true when initializing a fresh directory"
+        );
+        assert!(
+            is_git_repo(dir.path()),
+            "directory must be a git repo after init"
+        );
     }
 
     #[test]
@@ -441,7 +463,10 @@ mod tests {
         init_if_needed(dir.path()).unwrap();
         // Call again — must succeed without error and return false.
         let was_new = init_if_needed(dir.path()).expect("second call must not error");
-        assert!(!was_new, "must return false for an already-initialized repo");
+        assert!(
+            !was_new,
+            "must return false for an already-initialized repo"
+        );
     }
 
     #[test]
@@ -551,7 +576,10 @@ mod tests {
         append_origin_remote(dir.path(), "git@github.com:cyrusae/entangle.git", &[]);
         let status = get_origin_status(dir.path()).expect("must not error");
         match status {
-            OriginStatus::Present { fetch_url, push_urls } => {
+            OriginStatus::Present {
+                fetch_url,
+                push_urls,
+            } => {
                 assert_eq!(fetch_url, "git@github.com:cyrusae/entangle.git");
                 assert!(
                     push_urls.is_empty(),
@@ -677,14 +705,21 @@ mod tests {
         let config = "[remote \"origin\"]\n\t\turl = old\n";
         let result = replace_url_in_origin_section(config, "new");
         // The double-tab indentation from the original must be preserved.
-        assert!(result.contains("\t\turl = new"), "must preserve original indentation: {result}");
+        assert!(
+            result.contains("\t\turl = new"),
+            "must preserve original indentation: {result}"
+        );
     }
 
     #[test]
     fn replace_url_in_origin_section_does_not_touch_other_remotes() {
-        let config = "[remote \"upstream\"]\n\turl = upstream_url\n[remote \"origin\"]\n\turl = old_url\n";
+        let config =
+            "[remote \"upstream\"]\n\turl = upstream_url\n[remote \"origin\"]\n\turl = old_url\n";
         let result = replace_url_in_origin_section(config, "new_url");
-        assert!(result.contains("upstream_url"), "must not modify upstream remote");
+        assert!(
+            result.contains("upstream_url"),
+            "must not modify upstream remote"
+        );
         assert!(result.contains("url = new_url"), "must update origin url");
         assert!(!result.contains("url = old_url"), "old url must be gone");
     }
@@ -698,29 +733,43 @@ mod tests {
             !result.contains("some_url"),
             "must not insert url when section is absent: {result}"
         );
-        assert!(result.contains("[core]"), "core section must still be present");
+        assert!(
+            result.contains("[core]"),
+            "core section must still be present"
+        );
     }
 
     // ── insert_push_urls_in_config ────────────────────────────────────────────
 
     #[test]
     fn insert_push_urls_in_config_inserts_before_next_section() {
-        let config = "[remote \"origin\"]\n\turl = origin_url\n[branch \"main\"]\n\tremote = origin\n";
+        let config =
+            "[remote \"origin\"]\n\turl = origin_url\n[branch \"main\"]\n\tremote = origin\n";
         let result = insert_push_urls_in_config(config, &["push_url_1", "push_url_2"]);
-        let push1_pos = result.find("pushurl = push_url_1").expect("push_url_1 must be in result");
-        let branch_pos = result.find("[branch").expect("[branch] must still be in result");
+        let push1_pos = result
+            .find("pushurl = push_url_1")
+            .expect("push_url_1 must be in result");
+        let branch_pos = result
+            .find("[branch")
+            .expect("[branch] must still be in result");
         assert!(
             push1_pos < branch_pos,
             "pushurls must appear before [branch] header"
         );
-        assert!(result.contains("pushurl = push_url_2"), "push_url_2 must be present");
+        assert!(
+            result.contains("pushurl = push_url_2"),
+            "push_url_2 must be present"
+        );
     }
 
     #[test]
     fn insert_push_urls_in_config_appends_when_last_section() {
         let config = "[remote \"origin\"]\n\turl = origin_url\n\tfetch = +refs/heads/*\n";
         let result = insert_push_urls_in_config(config, &["push_url_1"]);
-        assert!(result.contains("\tpushurl = push_url_1"), "must add pushurl at end");
+        assert!(
+            result.contains("\tpushurl = push_url_1"),
+            "must add pushurl at end"
+        );
     }
 
     #[test]
@@ -737,7 +786,10 @@ mod tests {
     fn insert_push_urls_in_config_returns_unchanged_for_empty_slice() {
         let config = "[remote \"origin\"]\n\turl = url\n";
         let result = insert_push_urls_in_config(config, &[]);
-        assert_eq!(result, config, "empty push_urls must return unchanged string");
+        assert_eq!(
+            result, config,
+            "empty push_urls must return unchanged string"
+        );
     }
 
     #[test]
@@ -745,7 +797,10 @@ mod tests {
         let config = "[core]\n\trepositoryformatversion = 0\n";
         let result = insert_push_urls_in_config(config, &["some_url"]);
         // No origin section — string unchanged (modulo the line-by-line reconstruction).
-        assert!(!result.contains("pushurl"), "must not insert pushurl when section is absent");
+        assert!(
+            !result.contains("pushurl"),
+            "must not insert pushurl when section is absent"
+        );
     }
 
     // ── create_origin_remote ──────────────────────────────────────────────────
@@ -763,7 +818,10 @@ mod tests {
 
         let status = get_origin_status(dir.path()).unwrap();
         match status {
-            OriginStatus::Present { fetch_url, push_urls } => {
+            OriginStatus::Present {
+                fetch_url,
+                push_urls,
+            } => {
                 assert_eq!(fetch_url, "git@github.com:user/repo.git");
                 assert_eq!(push_urls.len(), 2, "must have both push URLs");
                 assert!(push_urls.contains(&"git@github.com:user/repo.git".to_string()));
@@ -781,7 +839,10 @@ mod tests {
 
         let status = get_origin_status(dir.path()).unwrap();
         match status {
-            OriginStatus::Present { fetch_url, push_urls } => {
+            OriginStatus::Present {
+                fetch_url,
+                push_urls,
+            } => {
                 assert_eq!(fetch_url, "git@github.com:user/repo.git");
                 assert!(push_urls.is_empty(), "no push URLs should be configured");
             }
@@ -825,7 +886,10 @@ mod tests {
 
         let status = get_origin_status(dir.path()).unwrap();
         match status {
-            OriginStatus::Present { fetch_url, push_urls } => {
+            OriginStatus::Present {
+                fetch_url,
+                push_urls,
+            } => {
                 assert_eq!(fetch_url, "git@github.com:new/repo.git");
                 assert_eq!(push_urls, vec!["git@github.com:old/repo.git"]);
             }
@@ -862,7 +926,10 @@ mod tests {
         add_push_urls_to_origin(dir.path(), &[]).unwrap();
 
         let urls = read_push_urls(dir.path(), "origin");
-        assert!(urls.is_empty(), "no push URLs should be added from an empty slice");
+        assert!(
+            urls.is_empty(),
+            "no push URLs should be added from an empty slice"
+        );
     }
 
     #[test]
@@ -876,7 +943,10 @@ mod tests {
         let status = get_origin_status(dir.path()).unwrap();
         match status {
             OriginStatus::Present { fetch_url, .. } => {
-                assert_eq!(fetch_url, "git@github.com:user/repo.git", "fetch URL must be preserved");
+                assert_eq!(
+                    fetch_url, "git@github.com:user/repo.git",
+                    "fetch URL must be preserved"
+                );
             }
             OriginStatus::Absent => panic!("expected Present"),
         }
@@ -902,7 +972,11 @@ mod tests {
         writeln!(file, "\tpushurl = git@tangled.org:atdot.fyi/entangle").unwrap();
 
         let urls = read_push_urls(dir.path(), "origin");
-        assert_eq!(urls.len(), 2, "both pushurl entries from repeated sections must be collected");
+        assert_eq!(
+            urls.len(),
+            2,
+            "both pushurl entries from repeated sections must be collected"
+        );
         assert!(urls.contains(&"git@github.com:cyrusae/entangle.git".to_string()));
         assert!(urls.contains(&"git@tangled.org:atdot.fyi/entangle".to_string()));
     }

@@ -42,9 +42,12 @@ fn main() {
 
         Some(Commands::Setup) => commands::setup::run(),
         Some(Commands::Set { key, value }) => commands::set::run(key, value),
-        Some(Commands::Init { repo, alias, quiet, debug }) => {
-            commands::init::run(repo, alias, quiet, debug)
-        }
+        Some(Commands::Init {
+            repo,
+            alias,
+            quiet,
+            debug,
+        }) => commands::init::run(repo, alias, quiet, debug),
         Some(Commands::Shove) => commands::shove::run(),
     };
 

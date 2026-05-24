@@ -152,20 +152,32 @@ mod tests {
     #[test]
     fn github_url_includes_dot_git_suffix() {
         let url = build_github_url("cyrusae", "my-repo");
-        assert!(url.ends_with(".git"), "GitHub URL must end with .git, got: {url}");
+        assert!(
+            url.ends_with(".git"),
+            "GitHub URL must end with .git, got: {url}"
+        );
     }
 
     #[test]
     fn github_url_format_is_ssh_not_https() {
         let url = build_github_url("cyrusae", "entangle");
-        assert!(url.starts_with("git@"), "URL must use SSH format (git@), got: {url}");
-        assert!(!url.starts_with("https://"), "URL must not use HTTPS format");
+        assert!(
+            url.starts_with("git@"),
+            "URL must use SSH format (git@), got: {url}"
+        );
+        assert!(
+            !url.starts_with("https://"),
+            "URL must not use HTTPS format"
+        );
     }
 
     #[test]
     fn github_url_contains_correct_host() {
         let url = build_github_url("cyrusae", "entangle");
-        assert!(url.contains("github.com"), "URL must reference github.com, got: {url}");
+        assert!(
+            url.contains("github.com"),
+            "URL must reference github.com, got: {url}"
+        );
     }
 
     #[test]
@@ -196,14 +208,23 @@ mod tests {
     #[test]
     fn tangled_url_format_is_ssh_not_https() {
         let url = build_tangled_url("atdot.fyi", "entangle");
-        assert!(url.starts_with("git@"), "URL must use SSH format (git@), got: {url}");
-        assert!(!url.starts_with("https://"), "URL must not use HTTPS format");
+        assert!(
+            url.starts_with("git@"),
+            "URL must use SSH format (git@), got: {url}"
+        );
+        assert!(
+            !url.starts_with("https://"),
+            "URL must not use HTTPS format"
+        );
     }
 
     #[test]
     fn tangled_url_contains_correct_host() {
         let url = build_tangled_url("atdot.fyi", "entangle");
-        assert!(url.contains("tangled.org"), "URL must reference tangled.org, got: {url}");
+        assert!(
+            url.contains("tangled.org"),
+            "URL must reference tangled.org, got: {url}"
+        );
     }
 
     #[test]
@@ -272,12 +293,15 @@ mod tests {
     #[test]
     fn resolve_with_alias_uses_alias_on_mirror_not_origin() {
         // GitHub is origin: origin uses "entangle", mirror (Tangled) uses alias "my-fork".
-        let (origin, mirror) =
-            resolve_urls(&github_origin_config(), "entangle", Some("my-fork"));
-        assert_eq!(origin, "git@github.com:cyrusae/entangle.git",
-            "origin must use the original repo name, not the alias");
-        assert_eq!(mirror, "git@tangled.org:atdot.fyi/my-fork",
-            "mirror must use the alias");
+        let (origin, mirror) = resolve_urls(&github_origin_config(), "entangle", Some("my-fork"));
+        assert_eq!(
+            origin, "git@github.com:cyrusae/entangle.git",
+            "origin must use the original repo name, not the alias"
+        );
+        assert_eq!(
+            mirror, "git@tangled.org:atdot.fyi/my-fork",
+            "mirror must use the alias"
+        );
     }
 
     #[test]
@@ -285,18 +309,28 @@ mod tests {
         // Tangled is origin: origin uses "entangle", mirror (GitHub) uses alias "mirror-name".
         let (origin, mirror) =
             resolve_urls(&tangled_origin_config(), "entangle", Some("mirror-name"));
-        assert_eq!(origin, "git@tangled.org:atdot.fyi/entangle",
-            "origin must use the original repo name, not the alias");
-        assert_eq!(mirror, "git@github.com:cyrusae/mirror-name.git",
-            "mirror must use the alias");
+        assert_eq!(
+            origin, "git@tangled.org:atdot.fyi/entangle",
+            "origin must use the original repo name, not the alias"
+        );
+        assert_eq!(
+            mirror, "git@github.com:cyrusae/mirror-name.git",
+            "mirror must use the alias"
+        );
     }
 
     #[test]
     fn resolve_no_alias_uses_same_name_on_both_forges() {
         let (origin, mirror) = resolve_urls(&github_origin_config(), "entangle", None);
         // Both should contain "entangle" as the repo name.
-        assert!(origin.contains("/entangle"), "origin must contain repo name");
-        assert!(mirror.contains("/entangle"), "mirror must contain repo name (no alias)");
+        assert!(
+            origin.contains("/entangle"),
+            "origin must contain repo name"
+        );
+        assert!(
+            mirror.contains("/entangle"),
+            "mirror must contain repo name (no alias)"
+        );
     }
 
     #[test]

@@ -158,7 +158,11 @@ fn shove_pushes_to_two_local_remotes() {
 
     // Make a commit and a tag.
     std::fs::write(work.path().join("README.md"), b"# test\n").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(work.path()).output().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(work.path())
+        .output()
+        .unwrap();
     Command::new("git")
         .args(["commit", "-m", "init"])
         .current_dir(work.path())

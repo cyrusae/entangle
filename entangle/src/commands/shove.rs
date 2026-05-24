@@ -49,11 +49,9 @@ pub fn run_with_paths(work_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
     let repo = match gix::discover(work_dir) {
         Ok(r) => r,
         Err(_) => {
-            return Err(
-                "not a git repository. \
+            return Err("not a git repository. \
                  Navigate to your project directory and run `entangle init` to set one up."
-                    .into(),
-            );
+                .into());
         }
     };
 
@@ -67,11 +65,9 @@ pub fn run_with_paths(work_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
         Some(Ok(_)) => true,
     };
     if !has_origin {
-        return Err(
-            "no 'origin' remote is configured. \
+        return Err("no 'origin' remote is configured. \
              Run `entangle init` to set up the GitHub and Tangled push remotes."
-                .into(),
-        );
+            .into());
     }
 
     // ── 3. Guard against empty repositories (no commits yet) ──────────────────
@@ -79,11 +75,9 @@ pub fn run_with_paths(work_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
     // An unborn HEAD (zero commits) causes `git push` to fail with an opaque
     // refspec error. We catch it here and give a clear instruction instead.
     if repo.head_id().is_err() {
-        return Err(
-            "no commits to push. \
+        return Err("no commits to push. \
              Make your first commit, then run `entangle shove` again."
-                .into(),
-        );
+            .into());
     }
 
     // ── 4. Push all branches to both forges ───────────────────────────────────
@@ -157,12 +151,12 @@ mod tests {
         gix::init(dir.path()).unwrap();
         // No remotes configured — origin is absent.
         let result = run_with_paths(dir.path());
-        assert!(result.is_err(), "shove must error when origin is not configured");
-        let msg = result.unwrap_err().to_string();
         assert!(
-            msg.contains("origin"),
-            "error must mention 'origin': {msg}"
+            result.is_err(),
+            "shove must error when origin is not configured"
         );
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("origin"), "error must mention 'origin': {msg}");
         assert!(
             msg.contains("entangle init"),
             "error must suggest entangle init: {msg}"
@@ -184,12 +178,12 @@ mod tests {
         )
         .unwrap();
         let result = run_with_paths(dir.path());
-        assert!(result.is_err(), "shove must error when there are no commits");
-        let msg = result.unwrap_err().to_string();
         assert!(
-            msg.contains("commit"),
-            "error must mention 'commit': {msg}"
+            result.is_err(),
+            "shove must error when there are no commits"
         );
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("commit"), "error must mention 'commit': {msg}");
     }
 
     /// Verify that origin configured with a non-standard remote name does not
@@ -212,9 +206,6 @@ mod tests {
         let result = run_with_paths(dir.path());
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("origin"),
-            "error must mention 'origin': {msg}"
-        );
+        assert!(msg.contains("origin"), "error must mention 'origin': {msg}");
     }
 }

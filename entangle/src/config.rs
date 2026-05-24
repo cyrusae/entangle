@@ -237,8 +237,8 @@ impl PartialConfig {
             std::fs::create_dir_all(parent).map_err(ConfigError::CannotCreateDir)?;
         }
 
-        let json =
-            serde_json::to_string_pretty(self).expect("PartialConfig serialization should never fail");
+        let json = serde_json::to_string_pretty(self)
+            .expect("PartialConfig serialization should never fail");
 
         std::fs::write(path, json).map_err(ConfigError::CannotWriteFile)?;
         Ok(())
@@ -636,9 +636,7 @@ mod tests {
 
     #[test]
     fn load_missing_github_username() {
-        let f = temp_with(
-            r#"{"tangled_username":"atdot.fyi","origin_preference":"github"}"#,
-        );
+        let f = temp_with(r#"{"tangled_username":"atdot.fyi","origin_preference":"github"}"#);
         let err = Config::load_from_path(f.path()).unwrap_err();
         assert!(
             matches!(err, ConfigError::MissingGithubUsername),
@@ -648,9 +646,7 @@ mod tests {
 
     #[test]
     fn load_missing_tangled_username() {
-        let f = temp_with(
-            r#"{"github_username":"cyrusae","origin_preference":"github"}"#,
-        );
+        let f = temp_with(r#"{"github_username":"cyrusae","origin_preference":"github"}"#);
         let err = Config::load_from_path(f.path()).unwrap_err();
         assert!(
             matches!(err, ConfigError::MissingTangledUsername),
@@ -660,9 +656,7 @@ mod tests {
 
     #[test]
     fn load_missing_origin_preference() {
-        let f = temp_with(
-            r#"{"github_username":"cyrusae","tangled_username":"atdot.fyi"}"#,
-        );
+        let f = temp_with(r#"{"github_username":"cyrusae","tangled_username":"atdot.fyi"}"#);
         let err = Config::load_from_path(f.path()).unwrap_err();
         assert!(
             matches!(err, ConfigError::MissingOriginPreference),
@@ -674,6 +668,28 @@ mod tests {
     fn load_success_for_valid_json() {
         let f = temp_with(valid_json());
         let cfg = Config::load_from_path(f.path()).unwrap();
+        assert_eq!(cfg, valid_config());
+    }
+
+    /// A config file with additional unknown fields must still load correctly.
+    ///
+    /// serde's default behaviour is to ignore unknown fields during
+    /// deserialization. This test pins that behaviour so future struct changes
+    /// (e.g. adding a new field with `#[serde(default)]`) don't accidentally
+    /// break users who haven't regenerated their config file yet.
+    #[test]
+    fn load_ignores_unknown_fields_in_json() {
+        // Valid config plus an extra field that doesn't exist in the struct.
+        let json = r#"{
+            "github_username": "cyrusae",
+            "tangled_username": "atdot.fyi",
+            "origin_preference": "github",
+            "unknown_future_field": 42,
+            "another_unknown": "hello"
+        }"#;
+        let f = temp_with(json);
+        let cfg = Config::load_from_path(f.path()).unwrap();
+        // Known fields must be loaded; unknown ones silently ignored.
         assert_eq!(cfg, valid_config());
     }
 
